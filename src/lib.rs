@@ -1,38 +1,11 @@
-#![allow(unused)]
-// TODO:
-// then make the LX, async method
-// do the 16 x 16 instruction ie 512 for the tower
-// make the toml cfg to get cacheline size etc
-// do a small test
-// inspect the flamegraph to see if any hanging threads
-// ie suspect like communication jam in l1-> l2
-//
-// value sanity start working on the LX async vision with the queue
+use proc_macro;
+use std::arch::x86_64::{ _mm256_loadu_ps, _mm256_storeu_ps, };
 
-// 1. Animate demo        ← most legible to employers
-// 2. Blog redesign       ← makes everything else findable
-// 3. Triangle kernel     ← 2hrs, unblocks LQ block
-// 4. Trait refactor      ← important but least urgent
+const AVX512_SIMD_WIDTH:usize = 16;
+const AVX_SIMD_WIDTH:usize = 8;
+const NEON_SIMD_WIDTH:usize = 4;
 
-use rayon::prelude::*;
-use rayon::slice::ParallelSlice;
-use std::cell::RefCell;
-use stellar::algebra::ndmethods::basic_mult;
-use stellar::arch::SIMD_WIDTH;
-use stellar::equality::approximate::approx_vector_eq;
-use stellar::kernel::matkerns::{kernel_lt_mult, kernel_mult};
-use stellar::random::generation::generate_random_matrix;
-use stellar::structure::ndarray::NdArray;
-use stellar::kernel::avx2::constants::MASK;
-use std::arch::x86_64::{
-    _MM_HINT_T0, _mm_prefetch, _mm256_add_ps, _mm256_broadcast_ss, _mm256_castpd_ps,
-    _mm256_castps_pd, _mm256_fmadd_ps, _mm256_load_ps, _mm256_loadu_ps, _mm256_mask_load_ps,
-    _mm256_permute2f128_ps, _mm256_set1_ps, _mm256_setzero_ps, _mm256_storeu_ps,
-    _mm256_unpackhi_pd, _mm256_unpackhi_ps, _mm256_unpacklo_pd, _mm256_unpacklo_ps,
 
-};
-const MINIKERN_GATE: usize = SIMD_WIDTH * SIMD_WIDTH;
-// NOTE: could set these as cache sizes so threads reflect the amount of work
 const LC: usize = 64;
 const MC: usize = 64;
 const PC: usize = 256;
@@ -61,7 +34,6 @@ fn pack(d: &[f32], b: &mut [f32], re: usize, se: usize, s_b: usize, s_d: usize) 
         }
     }
 }
-use proc_macro;
 
 #[proc_macro]
 fn pack_simd_line(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
