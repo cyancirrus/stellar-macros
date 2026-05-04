@@ -1,5 +1,12 @@
 [package]
-name = "pack_macros"
+name = "stellar_macros"
 version = "0.1.0"
 edition = "2024"
 resolver = "2"
+
+[lib]
+proc-macro=true
+
+[dependencies]
+proc-macro2 = "1.0.106"
+quote = "1.0.45"
