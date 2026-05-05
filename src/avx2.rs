@@ -3,18 +3,6 @@ use quote::quote;
 use {proc_macro, proc_macro2};
 
 const AVX2_SIMD_WIDTH: usize = 8;
-#[rustfmt::skip]
-pub const MASK:[[i32;8];9] = [
-    [ 0,  0,  0,  0,  0,  0,  0,  0],
-    [-1,  0,  0,  0,  0,  0,  0,  0],
-    [-1, -1,  0,  0,  0,  0,  0,  0],
-    [-1, -1, -1,  0,  0,  0,  0,  0],
-    [-1, -1, -1, -1,  0,  0,  0,  0],
-    [-1, -1, -1, -1, -1,  0,  0,  0],
-    [-1, -1, -1, -1, -1, -1,  0,  0],
-    [-1, -1, -1, -1, -1, -1, -1,  0],
-    [-1, -1, -1, -1, -1, -1, -1, -1],
-];
 
 /// # pack_simd_line transfers a copy of data from d to pack
 /// * to inverse simply exchange d and b
@@ -35,13 +23,14 @@ pub fn pack_simd_line_alligned(
     let args = proc_macro2::TokenStream::from(input);
     let args: Vec<proc_macro2::TokenTree> = args.into_iter().collect();
     let bptr = &args[0];
-    let dptr = &args[1];
-    let boffset = &args[2];
-    let doffset = &args[3];
+    let dptr = &args[2];
+    let boffset = &args[4];
+    let doffset = &args[6];
     // source block size
-    // let source = &args[4];
+    // let source = &args[8];
     // destination block size
-    let block = parse::parse_usize(&args[5]);
+    // let block = parse::parse_usize(&args[10]);
+    let block:usize = 256;
     let mut tokens = Vec::new();
     for o in (0..block).step_by(AVX2_SIMD_WIDTH) {
         tokens.push(quote! {
@@ -65,13 +54,14 @@ pub fn pack_simd_line_unalligned(
     let args = proc_macro2::TokenStream::from(input);
     let args: Vec<proc_macro2::TokenTree> = args.into_iter().collect();
     let bptr = &args[0];
-    let dptr = &args[1];
-    let boffset = &args[2];
-    let doffset = &args[3];
+    let dptr = &args[2];
+    let boffset = &args[4];
+    let doffset = &args[6];
     // source block size
-    let source = &args[4];
+    let source = &args[8];
     // destination block size
-    let block = parse::parse_usize(&args[5]);
+    // let block = parse::parse_usize(&args[10]);
+    let block:usize = 256;
     let mut tokens = Vec::new();
     // x & 7 == x % 8;
     for o in (0..block).step_by(AVX2_SIMD_WIDTH) {
@@ -82,7 +72,7 @@ pub fn pack_simd_line_unalligned(
                     _mm256_loadu_si256(MASK[#source.saturating_sub(#o).min(8)].as_ptr() as *const __m256i),
                     _mm256_maskload_ps(
                         #dptr.add(#doffset + #o),
-                        _mm256_loadu_si256([#source.saturating_sub(#o).min(8)].as_ptr() as *const __m256i)
+                        _mm256_loadu_si256(MASK[#source.saturating_sub(#o).min(8)].as_ptr() as *const __m256i)
                     )
                 );
             }
