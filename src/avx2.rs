@@ -5,7 +5,7 @@ use syn::{Result, Token, Expr, parse_macro_input};
 
 const AVX2_SIMD_WIDTH: usize = 8;
 // const BLOCK_WIDTH: usize = 256;
-const BLOCK_WIDTH: usize = 4;
+const BLOCK_WIDTH: usize = 256;
 /// # pack_simd_line transfers a copy of data from d to pack
 /// * to inverse simply exchange d and b
 /// - d ~ M(r, s)
@@ -46,102 +46,58 @@ impl Parse for PackUSimdArgs {
     }
 }
 
-// pub fn pack_simd_line_alligned(
-//     input: proc_macro::TokenStream
-// // ) -> proc_macro::TokenStream {
-// ) -> proc_macro::TokenStream {
-//     let unroll_factor = 4;
-//     let args = parse_macro_input!(input as PackSimdArgs);
-//     let PackSimdArgs { bptr, dptr } = args;
-//     let mut unroll = Vec::new();
-//     // 4 unroll 
-//     for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
-//         unroll.push(quote! {
-//             _mm256_storeu_ps(
-//                 #bptr.add(i + #o),
-//                 _mm256_loadu_ps(#dptr.add(i + #o))
-//             );
-//         });
-//     }
-//     // loop over the 4 unroll
-//     let stride = unroll_factor * AVX2_SIMD_WIDTH;
-//     quote! {
-//         for i in (0..#AVX2_SIMD_WIDTH).step_by(#stride) {
-//             #(#unroll)*
-//         }
-//     }.into()
-// }
-
 pub fn pack_simd_line_alligned(
     input: proc_macro::TokenStream
+// ) -> proc_macro::TokenStream {
 ) -> proc_macro::TokenStream {
+    let unroll_factor = 4;
     let args = parse_macro_input!(input as PackSimdArgs);
     let PackSimdArgs { bptr, dptr } = args;
-    let mut tokens = Vec::new();
-    for o in (0..BLOCK_WIDTH).step_by(AVX2_SIMD_WIDTH) {
-        tokens.push(quote! {
+    let mut unroll = Vec::new();
+    // 4 unroll 
+    for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
+        unroll.push(quote! {
             _mm256_storeu_ps(
-                #bptr.add(#o),
-                _mm256_loadu_ps(#dptr.add(#o))
+                #bptr.add(o + #o),
+                _mm256_loadu_ps(#dptr.add(o + #o))
             );
         });
     }
-    quote! {#(#tokens)*}.into()
+    // loop over the 4 unroll
+    let stride = unroll_factor * AVX2_SIMD_WIDTH;
+    quote! {
+        for o in (0..#BLOCK_WIDTH).step_by(#stride) {
+            #(#unroll)*
+        }
+    }.into()
 }
 pub fn pack_simd_line_unalligned(
     input: proc_macro::TokenStream
 ) -> proc_macro::TokenStream {
+    let unroll_factor = 4;
     let args = parse_macro_input!(input as PackUSimdArgs);
     let PackUSimdArgs { bptr, dptr, source } = args;
-    let mut tokens = Vec::new();
-    
-    // x & 7 == x % 8;
-    for o in (0..BLOCK_WIDTH).step_by(AVX2_SIMD_WIDTH) {
-        tokens.push(
+    let mut unroll = Vec::new();
+
+    for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
+        unroll.push(
             quote! {
                 _mm256_storeu_ps(
-                    #bptr.add(#o),
+                    #bptr.add(o + #o),
                     _mm256_maskload_ps(
-                        #dptr.add(#o),
-                        _mm256_loadu_si256(MASK[#source.saturating_sub(#o).min(8)].as_ptr() as *const __m256i)
+                        #dptr.add(o + #o),
+                        _mm256_loadu_si256(MASK[#source.saturating_sub(o + #o).min(8)].as_ptr() as *const __m256i)
                     )
                 );
             }
-            // quote! {
-            //     _mm256_maskstore_ps(
-            //         #bptr.add(#o),
-            //         _mm256_loadu_si256(MASK[#source.saturating_sub(#o).min(8)].as_ptr() as *const __m256i),
-            //         _mm256_maskload_ps(
-            //             #dptr.add(#o),
-            //             _mm256_loadu_si256(MASK[#source.saturating_sub(#o).min(8)].as_ptr() as *const __m256i)
-            //         )
-            //     );
-            // }
         );
+
     }
-    quote! {#(#tokens)*}.into()
+    let stride = unroll_factor * AVX2_SIMD_WIDTH;
+    quote ! {
+        // x & 7 == x % 8;
+        for o in (0..#BLOCK_WIDTH).step_by(#stride) {
+            #(#unroll)*
+        }
+    }.into()
 }
-// pub fn pack_simd_line_unalligned(
-//     input: proc_macro::TokenStream
-// ) -> proc_macro::TokenStream {
-//     let args = parse_macro_input!(input as PackUSimdArgs);
-//     let PackUSimdArgs { bptr, dptr, source } = args;
-//     let mut tokens = Vec::new();
-    
-//     // x & 7 == x % 8;
-//     for o in (0..BLOCK_WIDTH).step_by(AVX2_SIMD_WIDTH) {
-//         tokens.push(
-//             quote! {
-//                 _mm256_maskstore_ps(
-//                     #bptr.add(#o),
-//                     _mm256_loadu_si256(MASK[#source.saturating_sub(#o).min(8)].as_ptr() as *const __m256i),
-//                     _mm256_maskload_ps(
-//                         #dptr.add(#o),
-//                         _mm256_loadu_si256(MASK[#source.saturating_sub(#o).min(8)].as_ptr() as *const __m256i)
-//                     )
-//                 );
-//             }
-//         );
-//     }
-//     quote! {#(#tokens)*}.into()
-// }
