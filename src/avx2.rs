@@ -104,45 +104,65 @@ pub fn pack_simd_line_unalligned(input: proc_macro::TokenStream) -> proc_macro::
 }
 pub fn pack_simd_line(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // c :: clean, d :: dirty
-    let unroll_factor = 4;
+    let unroll_factor = 2;
     let args = parse_macro_input!(input as PackUSimdArgs);
     let PackUSimdArgs { bptr, dptr, source } = args;
     let mut c_unroll = Vec::new();
+    let mut z_unroll = Vec::new();
 
     // AVX2_SIMD_WIDTH = 8 = 2^3;
     let stride = unroll_factor * AVX2_SIMD_WIDTH;
     for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
         c_unroll.push(quote! {
                 _mm256_storeu_ps(
-                    #bptr.add(i + #o),
-                    _mm256_loadu_ps(#dptr.add(i + #o))
+                    #bptr.add(idx + #o),
+                    _mm256_loadu_ps(#dptr.add(idx + #o))
                 );
         });
     }
+    let c_roll = quote! {
+        _mm256_storeu_ps(#bptr.add(idx), _mm256_loadu_ps(#dptr.add(idx)));
+
+    };
     let d_roll = quote! {
         _mm256_storeu_ps(
-            #bptr.add(offset),
+            #bptr.add(idx),
             _mm256_maskload_ps(
-                #dptr.add(offset),
-                _mm256_loadu_si256(MASK[#source - offset].as_ptr() as *const __m256i)
+                #dptr.add(idx),
+                mask
             )
         );
     };
+
+    for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
+        z_unroll.push(quote! {
+            _mm256_storeu_ps( #bptr.add(idx + #o), zeros);
+        });
+    }
     let z_roll = quote! {
-            _mm256_storeu_ps( #bptr.add(o), zeros);
+        _mm256_storeu_ps( #bptr.add(idx), zeros);
     };
-    // offset == number of clean iterations
     quote! {
-        let zeros = _mm256_setzero_ps();
-        let offset = #source & !(#AVX2_SIMD_WIDTH - 1);
-        for i in (0..offset).step_by(#stride) {
+        let mut idx = 0;
+        while idx + #stride <= #source {
             #(#c_unroll)*
+            idx += #stride;
         }
-        if offset != #BLOCK_WIDTH {
+        while idx + #AVX2_SIMD_WIDTH <= #source {
+            #c_roll
+            idx += #AVX2_SIMD_WIDTH;
+        }
+        if 0 != #source & (#AVX2_SIMD_WIDTH - 1) {
             #d_roll
-            for o in (offset + #AVX2_SIMD_WIDTH..#BLOCK_WIDTH).step_by(#AVX2_SIMD_WIDTH) {
-                #z_roll
-            }
+            idx += #AVX2_SIMD_WIDTH;
+        }
+        while idx + #stride <= #BLOCK_WIDTH {
+            #(#z_unroll)*
+            idx += #stride;
+        }
+        while idx < #BLOCK_WIDTH {
+            #z_roll
+            idx += #AVX2_SIMD_WIDTH;
         }
     }
     .into()
