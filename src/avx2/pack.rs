@@ -49,9 +49,7 @@ impl Parse for PackUSimdArgs {
     }
 }
 
-pub fn pack_simd_line_alligned(
-    input: proc_macro::TokenStream, // ) -> proc_macro::TokenStream {
-) -> proc_macro::TokenStream {
+pub fn pack_simd_line_alligned(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let unroll_factor = 4;
     let args = parse_macro_input!(input as PackSimdArgs);
     let PackSimdArgs { bptr, dptr } = args;
@@ -59,7 +57,7 @@ pub fn pack_simd_line_alligned(
     // 4 unroll
     for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
         unroll.push(quote! {
-            _mm256_storeu_ps(
+            _mm256_stream_ps(
                 #bptr.add(o + #o),
                 _mm256_loadu_ps(#dptr.add(o + #o))
             );
@@ -83,7 +81,7 @@ pub fn pack_simd_line_unalligned(input: proc_macro::TokenStream) -> proc_macro::
     for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
         unroll.push(
             quote! {
-                _mm256_storeu_ps(
+                _mm256_stream_ps(
                     #bptr.add(o + #o),
                     _mm256_maskload_ps(
                         #dptr.add(o + #o),
@@ -114,18 +112,18 @@ pub fn pack_simd_line(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     let stride = unroll_factor * AVX2_SIMD_WIDTH;
     for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
         c_unroll.push(quote! {
-                _mm256_storeu_ps(
+                _mm256_stream_ps(
                     #bptr.add(idx + #o),
                     _mm256_loadu_ps(#dptr.add(idx + #o))
                 );
         });
     }
     let c_roll = quote! {
-        _mm256_storeu_ps(#bptr.add(idx), _mm256_loadu_ps(#dptr.add(idx)));
+        _mm256_stream_ps(#bptr.add(idx), _mm256_loadu_ps(#dptr.add(idx)));
 
     };
     let d_roll = quote! {
-        _mm256_storeu_ps(
+        _mm256_stream_ps(
             #bptr.add(idx),
             _mm256_maskload_ps(
                 #dptr.add(idx),
@@ -136,11 +134,11 @@ pub fn pack_simd_line(input: proc_macro::TokenStream) -> proc_macro::TokenStream
 
     for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
         z_unroll.push(quote! {
-            _mm256_storeu_ps( #bptr.add(idx + #o), zeros);
+            _mm256_stream_ps( #bptr.add(idx + #o), zeros);
         });
     }
     let z_roll = quote! {
-        _mm256_storeu_ps( #bptr.add(idx), zeros);
+        _mm256_stream_ps( #bptr.add(idx), zeros);
     };
     quote! {
         let mut idx = 0;
