@@ -1,5 +1,6 @@
 use proc_macro::TokenStream;
 mod avx2;
+mod instructs;
 
 #[proc_macro]
 pub fn avx2_pack_simd_line(input: TokenStream) -> TokenStream {
