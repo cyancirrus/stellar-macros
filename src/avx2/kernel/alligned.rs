@@ -5,9 +5,8 @@ use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Result, Token, parse_macro_input};
-
-type Vars = Vec<proc_macro2::Ident>;
-type Instr = Vec<proc_macro2::TokenStream>;
+use crate::avx2::common::{Vars, Instr};
+use crate::avx2::common;
 
 const M: usize = 8;
 const B: usize = 2;
@@ -47,68 +46,16 @@ impl Parse for KernelArgs {
         })
     }
 }
-fn name_tvecs(m: usize) -> Vars {
-    let mut idents = Vec::with_capacity(m);
-    for idx in 0..m {
-        idents.push(format_ident!("r{idx:?}"));
-    }
-    idents
-}
-fn name_yvecs(k: usize) -> Vars {
-    let mut yids = Vec::with_capacity(k);
-    for idx in 0..k {
-        yids.push(format_ident!("b{idx:?}"));
-    }
-    yids
-}
-fn load_tvecs(tids: &Vars, tptr: &Expr, s_t: &Expr, m: usize) -> Instr {
-    let mut loads = Vec::with_capacity(m);
-    for (idx, ident) in tids.iter().enumerate() {
-        loads.push(quote! {
-            let mut #ident = _mm256_loadu_ps(#tptr.add(#idx * #s_t));
-        });
-    }
-    loads
-}
-fn load_yvecs(yids: &Vars, yptr: &Expr, s_y: &Expr, k: usize) -> Instr {
-    let mut loads = Vec::with_capacity(k);
-    for (bdx, bee) in yids.iter().enumerate() {
-        loads.push(quote! {
-            let #bee = _mm256_loadu_ps(#yptr + #bdx * #s_y);
-        });
-    }
-    loads
-}
-fn write_outcome(tids: &Vars, tptr: &Expr, s_t: &Expr) -> Instr {
-    let mut saves = Vec::with_capacity(M);
-    for (idx, ident) in tids.iter().enumerate() {
-        saves.push(quote! {
-            _mm256_storeu_ps(#tptr.add(#idx * #s_t), #ident);
-        });
-    }
-    saves
-}
-fn fma_product(tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, m: usize, k: usize) -> Instr {
-    let mut products = Vec::with_capacity(m * k);
-    for (bdx, b) in yids.iter().enumerate() {
-        for (idx, ident) in tids.iter().enumerate() {
-            products.push(quote! {
-                fma_accum!(#ident, #xptr.add(#idx * #s_x + #bdx), #b);
-            });
-        }
-    }
-    products
-}
 #[rustfmt::skip]
 pub fn mult_alligned(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let args = parse_macro_input!(input as KernelArgs);
     let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
-    let tids = name_tvecs(M);
-    let yids = name_yvecs(B);
-    let mut yvecs = load_yvecs(&yids, &yptr, &s_y, B);
-    let mut load = load_tvecs(&tids, &tptr, &s_t, M);
-    let mut prod = fma_product(&tids, &yids, &xptr, &s_x, M, B);
-    let mut save = write_outcome(&tids, &tptr, &s_t);
+    let tids = common::name_tvecs(M);
+    let yids = common::name_yvecs(B);
+    let mut yvecs = common::load_yvecs(&yids, &yptr, &s_y, B);
+    let mut load = common::load_tvecs(&tids, &tptr, &s_t, M);
+    let mut prod = common::fma_product(&tids, &yids, &xptr, &s_x, M, B);
+    let mut save = common::write_outcome(&tids, &tptr, &s_t, M);
     
     riffle(&mut load);
     riffle_partitions(&mut prod, B);

@@ -1,10 +1,8 @@
 use quote::{format_ident, quote};
-use syn::parse::{Parse, ParseStream};
-use syn::punctuated::Punctuated;
-use syn::{Expr, Result, Token, parse_macro_input};
+use syn::Expr;
 
-type Vars = Vec<proc_macro2::Ident>;
-type Instr = Vec<proc_macro2::TokenStream>;
+pub type Vars = Vec<proc_macro2::Ident>;
+pub type Instr = Vec<proc_macro2::TokenStream>;
 
 pub fn name_tvecs(m: usize) -> Vars {
     let mut idents = Vec::with_capacity(m);
