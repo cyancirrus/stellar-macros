@@ -38,8 +38,8 @@ pub fn load_yvecs(yids: &Vars, yptr: &Expr, s_y: &Expr, k: usize) -> Instr {
     }
     loads
 }
-pub fn write_outcome(tids: &Vars, tptr: &Expr, s_t: &Expr) -> Instr {
-    let mut saves = Vec::with_capacity(M);
+pub fn write_outcome(tids: &Vars, tptr: &Expr, s_t: &Expr, m:usize) -> Instr {
+    let mut saves = Vec::with_capacity(m);
     for (idx, ident) in tids.iter().enumerate() {
         saves.push(quote! {
             _mm256_storeu_ps(#tptr.add(#idx * #s_t), #ident);
