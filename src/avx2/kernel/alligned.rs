@@ -1,12 +1,12 @@
 #![allow(unused)]
+use crate::avx2::common;
+use crate::avx2::common::{Instr, Vars};
 use crate::instructs::perms::{interleave, interleave_partitions, riffle, riffle_partitions};
 use proc_macro;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Result, Token, parse_macro_input};
-use crate::avx2::common::{Vars, Instr};
-use crate::avx2::common;
 
 const M: usize = 8;
 const B: usize = 2;
@@ -65,7 +65,37 @@ pub fn mult_alligned(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
     quote! {
         unsafe {
             #(#load)*
-            for _ in 0..p {
+            for _ in 0..#p {
+                #(#yvecs)*
+                #(#prod)*
+            }
+            #(#save)*
+        }
+    }
+    .into()
+}
+#[rustfmt::skip]
+pub fn mult_unalligned(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(input as KernelArgs);
+    let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
+    let tids = common::name_tvecs(M);
+    let yids = common::name_yvecs(B);
+    let mut yvecs = common::mload_yvecs(&yids, &yptr, &s_y, B);
+    let mut load = common::mload_tvecs(&tids, &tptr, &s_t, M);
+    let mut prod = common::mfma_product(&tids, &yids, &xptr, &s_x, M, B);
+    let mut save = common::mwrite_outcome(&tids, &tptr, &s_t, M);
+    
+    riffle(&mut load);
+    riffle_partitions(&mut prod, B);
+    interleave_partitions(&mut prod, B);
+    riffle(&mut save);
+
+    quote! {
+        unsafe {
+            let mask_m = MASK[#m];
+            #(#load)*
+            let mask_n = MASK[#n];
+            for _ in 0..#p {
                 #(#yvecs)*
                 #(#prod)*
             }
