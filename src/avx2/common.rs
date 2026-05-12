@@ -1,8 +1,9 @@
 use quote::{format_ident, quote};
 use syn::Expr;
+use proc_macro2::{Ident, TokenStream};
 
-pub type Vars = Vec<proc_macro2::Ident>;
-pub type Instr = Vec<proc_macro2::TokenStream>;
+pub type Vars = Vec<Ident>;
+pub type Instr = Vec<TokenStream>;
 
 pub fn name_tvecs(m: usize) -> Vars {
     let mut idents = Vec::with_capacity(m);
@@ -18,41 +19,35 @@ pub fn name_yvecs(k: usize) -> Vars {
     }
     yids
 }
-pub fn load_tvecs(tids: &Vars, tptr: &Expr, s_t: &Expr, m: usize) -> Instr {
-    let mut loads = Vec::with_capacity(m);
-    for (idx, ident) in tids.iter().enumerate() {
+pub fn name_masks() -> (Ident, Ident) {
+    (
+        format_ident!("mask_m"),
+        format_ident!("mask_n"),
+    )
+}
+pub fn load_vecs(vars: &Vars, ptr: &Expr, stride: &Expr, card: usize) -> Instr {
+    let mut loads = Vec::with_capacity(card);
+    for (idx, name) in vars.iter().enumerate() {
         loads.push(quote! {
-            let mut #ident = _mm256_loadu_ps(#tptr.add(#idx * #s_t));
+            let mut #name = _mm256_loadu_ps(#ptr.add(#idx * #stride));
         });
     }
     loads
 }
-pub fn mload_tvecs(tids: &Vars, tptr: &Expr, s_t: &Expr, m: usize) -> Instr {
-    let mut loads = Vec::with_capacity(m);
-    for (idx, ident) in tids.iter().enumerate() {
+pub fn mload_vecs(mask:&Ident, vars: &Vars, ptr: &Expr, stride: &Expr, card: usize) -> Instr {
+    let mut loads = Vec::with_capacity(card);
+    for (idx, name) in vars.iter().enumerate() {
         loads.push(quote! {
-            let mut #ident = mask_load(#tptr.add(#idx * #s_t), mask_n);
+            let mut #name = mask_load(#ptr.add(#idx * #stride), #mask);
         });
     }
     loads
 }
-pub fn load_yvecs(yids: &Vars, yptr: &Expr, s_y: &Expr, k: usize) -> Instr {
-    let mut loads = Vec::with_capacity(k);
-    for (bdx, bee) in yids.iter().enumerate() {
-        loads.push(quote! {
-            let #bee = _mm256_loadu_ps(#yptr + #bdx * #s_y);
-        });
+pub fn load_masks(m: &Expr, n: &Expr) -> TokenStream {
+    quote! {
+        let mask_m = MASK[#m];
+        let mask_n = MASK[#n];
     }
-    loads
-}
-pub fn mload_yvecs(yids: &Vars, yptr: &Expr, s_y: &Expr, k: usize) -> Instr {
-    let mut loads = Vec::with_capacity(k);
-    for (bdx, bee) in yids.iter().enumerate() {
-        loads.push(quote! {
-            let #bee = mask_load(#yptr + #bdx * #s_y, mask_n);
-        });
-    }
-    loads
 }
 pub fn write_outcome(tids: &Vars, tptr: &Expr, s_t: &Expr, m: usize) -> Instr {
     let mut saves = Vec::with_capacity(m);
@@ -63,11 +58,11 @@ pub fn write_outcome(tids: &Vars, tptr: &Expr, s_t: &Expr, m: usize) -> Instr {
     }
     saves
 }
-pub fn mwrite_outcome(tids: &Vars, tptr: &Expr, s_t: &Expr, m: usize) -> Instr {
+pub fn mwrite_outcome(mask_m:&Ident, mask_n:&Ident, tids: &Vars, tptr: &Expr, s_t: &Expr, m: usize) -> Instr {
     let mut saves = Vec::with_capacity(m);
     for (idx, var) in tids.iter().enumerate() {
         saves.push(quote! {
-            mask_store_ctrl(#tptr.add(#idx * #s_t), mask_n, #var, mask_m[#idx]);
+            mask_store_ctrl(#tptr.add(#idx * #s_t), #mask_n, #var, #mask_m[#idx]);
         });
     }
     saves
@@ -83,12 +78,12 @@ pub fn fma_product(tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, m: usize, 
     }
     products
 }
-pub fn mfma_product(tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, m: usize, k: usize) -> Instr {
+pub fn mfma_product(mask:&Ident, tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, m: usize, k: usize) -> Instr {
     let mut products = Vec::with_capacity(m * k);
     for (bdx, bname) in yids.iter().enumerate() {
         for (idx, ident) in tids.iter().enumerate() {
             products.push(quote! {
-                fma_gated!(#ident, #xptr.add(#idx * #s_x + #bdx), mask_m[#idx], #bname);
+                fma_gated!(#ident, #xptr.add(#idx * #s_x + #bdx), #mask[#idx], #bname);
             });
         }
     }

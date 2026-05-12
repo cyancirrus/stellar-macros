@@ -52,19 +52,19 @@ pub fn mult_alligned(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
     let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
     let tids = common::name_tvecs(M);
     let yids = common::name_yvecs(B);
-    let mut yvecs = common::load_yvecs(&yids, &yptr, &s_y, B);
-    let mut load = common::load_tvecs(&tids, &tptr, &s_t, M);
+    let mut yvecs = common::load_vecs(&yids, &yptr, &s_y, B);
+    let mut tvecs = common::load_vecs(&tids, &tptr, &s_t, M);
     let mut prod = common::fma_product(&tids, &yids, &xptr, &s_x, M, B);
     let mut save = common::write_outcome(&tids, &tptr, &s_t, M);
     
-    riffle(&mut load);
+    riffle(&mut tvecs);
     riffle_partitions(&mut prod, B);
     interleave_partitions(&mut prod, B);
     riffle(&mut save);
 
     quote! {
         unsafe {
-            #(#load)*
+            #(#tvecs)*
             for _ in 0..#p {
                 #(#yvecs)*
                 #(#prod)*
@@ -80,21 +80,23 @@ pub fn mult_unalligned(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
     let tids = common::name_tvecs(M);
     let yids = common::name_yvecs(B);
-    let mut yvecs = common::mload_yvecs(&yids, &yptr, &s_y, B);
-    let mut load = common::mload_tvecs(&tids, &tptr, &s_t, M);
-    let mut prod = common::mfma_product(&tids, &yids, &xptr, &s_x, M, B);
-    let mut save = common::mwrite_outcome(&tids, &tptr, &s_t, M);
+    let (mask_m, mask_n) = common::name_masks();
+    // instructs
+    let masks = common::load_masks(&m, &n); 
+    let mut tvecs = common::mload_vecs(&mask_m, &tids, &tptr, &s_t, M);
+    let mut yvecs = common::mload_vecs(&mask_n, &yids, &yptr, &s_y, B);
+    let mut prod = common::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, M, B);
+    let mut save = common::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, M);
     
-    riffle(&mut load);
+    riffle(&mut tvecs);
     riffle_partitions(&mut prod, B);
     interleave_partitions(&mut prod, B);
     riffle(&mut save);
 
     quote! {
         unsafe {
-            let mask_m = MASK[#m];
-            #(#load)*
-            let mask_n = MASK[#n];
+            #masks
+            #(#tvecs)*
             for _ in 0..#p {
                 #(#yvecs)*
                 #(#prod)*
