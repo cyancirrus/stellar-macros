@@ -19,7 +19,7 @@ pub fn riffle<T>(data: &mut [T]) {
             }
             // data in hand at i
             data.swap(i, t);
-            seen |= 1 << v;
+            seen |= 1 << t;
             v = t;
         }
     }

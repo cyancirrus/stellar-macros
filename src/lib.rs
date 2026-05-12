@@ -16,3 +16,8 @@ pub fn avx2_pack_simd_line_alligned(input: TokenStream) -> TokenStream {
 pub fn avx2_pack_simd_line_unalligned(input: TokenStream) -> TokenStream {
     avx2::pack::pack_simd_line_unalligned(input)
 }
+
+#[proc_macro]
+pub fn kernel_mult_alligned(input: TokenStream) -> TokenStream {
+    avx2::kernel::alligned::mult_alligned(input)
+}

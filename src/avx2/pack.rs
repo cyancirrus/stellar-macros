@@ -8,7 +8,7 @@ use syn::{
 
 const AVX2_SIMD_WIDTH: usize = 8;
 // const BLOCK_WIDTH: usize = 256;
-const BLOCK_WIDTH: usize = 256;
+const BLOCK_WIDTH: usize = 160;
 /// # pack_simd_line transfers a copy of data from d to pack
 /// * to inverse simply exchange d and b
 /// - d ~ M(r, s)
