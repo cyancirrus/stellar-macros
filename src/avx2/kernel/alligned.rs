@@ -1,6 +1,6 @@
 #![allow(unused)]
 use crate::avx2::common;
-use crate::avx2::common::{Instr, Vars};
+use crate::avx2::common::{Instr, Vars, index_matrix};
 use crate::instructs::perms::{interleave, interleave_partitions, riffle, riffle_partitions};
 use proc_macro;
 use quote::{format_ident, quote};
@@ -16,6 +16,8 @@ macro_rules! parse_next {
         $args.next().ok_or($input.error("variable not found"))?
     };
 }
+use proc_macro2::{Ident, TokenStream};
+
 
 struct KernelArgs {
     xptr: Expr,
@@ -46,6 +48,35 @@ impl Parse for KernelArgs {
         })
     }
 }
+#[rustfmt::skip]
+fn mult_kernel(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(input as KernelArgs);
+    let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
+    let tids = common::name_tvecs(i);
+    let yids = common::name_yvecs(k);
+    let mut tvecs = common::load_vecs(&tids, &tptr, &s_t, i);
+    let mut yvecs = common::load_vecs(&yids, &yptr, &s_y, k);
+    let mut prod = common::fma_product(&tids, &yids, &xptr, &s_x, i, k);
+    let mut save = common::write_outcome(&tids, &tptr, &s_t, i);
+    
+    riffle(&mut tvecs);
+    riffle_partitions(&mut prod, k);
+    interleave_partitions(&mut prod, k);
+    riffle(&mut save);
+
+    quote! {
+        unsafe {
+            #(#tvecs)*
+            for _ in 0..#p {
+                #(#yvecs)*
+                #(#prod)*
+            }
+            #(#save)*
+        }
+    }
+    .into()
+}
+
 #[rustfmt::skip]
 pub fn mult_alligned(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let args = parse_macro_input!(input as KernelArgs);
