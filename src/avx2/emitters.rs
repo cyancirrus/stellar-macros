@@ -1,3 +1,4 @@
+#[allow(unused)]
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::Expr;
@@ -34,11 +35,17 @@ pub fn name_masks() -> (Ident, Ident) {
 pub fn name_threshold() -> Ident {
     format_ident!("threshold")
 }
-pub fn increment(ptr: &Expr, stride:&Expr, row:usize, col:usize) ->  TokenStream {
+pub fn increment(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenStream {
     let addr = index_matrix(&ptr, &stride, row, col);
     quote! {
         #ptr = #addr;
     }
+}
+pub fn threshold(threshold: &Ident, m: &Expr, p: &Expr) -> proc_macro::TokenStream {
+    quote! {
+        let #threshold = #m.min(#p);
+    }
+    .into()
 }
 pub fn load_vecs(vars: &Vars, ptr: &Expr, stride: &Expr, card: usize) -> Instr {
     let mut loads = Vec::with_capacity(card);
@@ -125,12 +132,6 @@ pub fn mwrite_outcome(
     }
     saves
 }
-
-/// handle_tail
-///
-/// * when unrolling b terms we need to handle the tail
-//  k := static unwrap
-//  p := runtime variable
 fn initialize_q(k: usize) -> usize {
     if k.count_ones() == 1 {
         k >> 1
@@ -138,6 +139,11 @@ fn initialize_q(k: usize) -> usize {
         1 << (usize::BITS - k.leading_zeros() - 1)
     }
 }
+/// handle_tail
+///
+/// * when unrolling b terms we need to handle the tail
+//  k := static unwrap
+//  p := runtime variable
 pub fn handle_tail(
     tids: &Vars,
     yids: &Vars,
@@ -227,7 +233,16 @@ pub fn mhandle_tail(
     }
     tail
 }
-pub fn handle_ltri(mask_n:&Ident, tids:&Vars, xptr:&Expr, yptr:&Expr, s_x:&Expr, s_y:&Expr, b:&Ident, m: usize) -> Instr {
+pub fn lhandle_lowtri(
+    mask_n: &Ident,
+    tids: &Vars,
+    xptr: &Expr,
+    yptr: &Expr,
+    s_x: &Expr,
+    s_y: &Expr,
+    b: &Ident,
+    m: usize,
+) -> Instr {
     let mut tri = Vec::new();
     for i in 0..m {
         let mut fmas = Vec::new();
@@ -251,11 +266,20 @@ pub fn handle_ltri(mask_n:&Ident, tids:&Vars, xptr:&Expr, yptr:&Expr, s_x:&Expr,
     }
     tri
 }
-pub fn handle_utri(mask_n:&Ident, tids:&Vars, xptr:&Expr, yptr:&Expr, s_x:&Expr, s_y:&Expr, b:&Ident, m: usize) -> Instr {
+pub fn lhandle_uptri(
+    mask_n: &Ident,
+    tids: &Vars,
+    xptr: &Expr,
+    yptr: &Expr,
+    s_x: &Expr,
+    s_y: &Expr,
+    b: &Ident,
+    m: usize,
+) -> Instr {
     let mut tri = Vec::new();
     for i in 0..m {
         let mut fmas = Vec::new();
-        for idx in i..m {
+        for idx in 0..=i {
             let ident = &tids[idx];
             let addr = index_matrix(&xptr, &s_x, idx, 0);
             fmas.push(quote! {
@@ -271,6 +295,44 @@ pub fn handle_utri(mask_n:&Ident, tids:&Vars, xptr:&Expr, yptr:&Expr, s_x:&Expr,
                 #xptr = #nxaddr
                 #yptr = #nyaddr
             }
+        });
+    }
+    tri
+}
+/// rhandle_ltrie
+///
+/// handles A * L
+pub fn rhandle_ltrie(
+    mask_m: &Ident,
+    mask_t: &Ident,
+    hid: &Ident,
+    tids: &Vars,
+    xptr: &Expr,
+    yptr: &Expr,
+    s_x: &Expr,
+    s_y: &Expr,
+    b: &Ident,
+    i: usize,
+    k: usize,
+) -> Instr {
+    let mut tri = Vec::new();
+    for kdx in 0..i {
+        let mut fmas = Vec::new();
+        for (idx, ident) in tids.iter().enumerate() {
+            let xaddr = index_matrix(&xptr, &s_x, idx, 0);
+            fmas.push(quote! {
+                mfma_accum!(#mask_m[#idx], #ident, #xaddr, #b);
+            });
+        }
+        let ynaddr = index_matrix(&yptr, &s_y, 1, 0);
+        let xnaddr = index_matrix(&xptr, &s_x, 0, 1);
+        tri.push(quote! {
+            #mask_t[#kdx] = #mask_t[#kdx];
+            #b = mask_load(#mask_t, #yptr);
+            #(#fmas)*
+            #yptr = #ynaddr;
+            #xptr = #xnaddr;
+
         });
     }
     tri

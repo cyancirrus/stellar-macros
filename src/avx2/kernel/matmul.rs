@@ -113,14 +113,7 @@ pub fn mult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc
 use proc_macro2::{Ident, TokenStream};
 pub type Vars = Vec<Ident>;
 pub type Instr = Vec<TokenStream>;
-
-fn threshold(threshold: &Ident, m: &Expr, p: &Expr) -> proc_macro::TokenStream {
-    quote! {
-        let #threshold = #m.min(#p);
-    }
-    .into()
-}
-pub fn mult_lower_tri(
+pub fn lmult_lower_tri(
     input: proc_macro::TokenStream,
     i: usize,
     k: usize,
@@ -150,8 +143,7 @@ pub fn mult_lower_tri(
     let tail = emitters::mhandle_tail(
         &mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k,
     );
-    let tri = emitters::handle_ltri(
-        &mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
+    let tri = emitters::lhandle_lowtri(&mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
     let save = emitters::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, i);
     quote! {
         unsafe {
@@ -169,7 +161,7 @@ pub fn mult_lower_tri(
     }
     .into()
 }
-pub fn mult_upper_tri(
+pub fn lmult_upper_tri(
     input: proc_macro::TokenStream,
     i: usize,
     k: usize,
@@ -189,12 +181,13 @@ pub fn mult_upper_tri(
     let tids = emitters::name_tvecs(i);
     let yids = emitters::name_yvecs(k);
     let hid = emitters::name_threshold();
+    let hval = emitters::threshold(&hid, &m, &p);
     let (mask_m, mask_n) = emitters::name_masks();
     // instructs
     let masks = emitters::load_masks(&m, &n);
     let tvecs = emitters::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
     let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
-    let tri = emitters::handle_utri( &mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
+    let tri = emitters::lhandle_uptri(&mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
     let fma = emitters::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
     let tail = emitters::mhandle_tail(

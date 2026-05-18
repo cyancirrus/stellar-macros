@@ -28,3 +28,11 @@ pub fn kernel_mult_alligned(input: TokenStream) -> TokenStream {
 pub fn kernel_mult_unalligned(input: TokenStream) -> TokenStream {
     avx2::kernel::matmul::mult_unalligned(input, B, M)
 }
+#[proc_macro]
+pub fn kernel_lmult_lower_tri(input: TokenStream) -> TokenStream {
+    avx2::kernel::matmul::lmult_upper_tri(input, B, M)
+}
+#[proc_macro]
+pub fn kernel_lmult_upper_tri(input: TokenStream) -> TokenStream {
+    avx2::kernel::matmul::lmult_lower_tri(input, B, M)
+}
