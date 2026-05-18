@@ -48,6 +48,13 @@ impl Parse for KernelArgs {
         })
     }
 }
+pub fn kernel_8(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    mult_kernel(input, 8, 2)
+}
+pub fn kernel_4(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    mult_kernel(input, 4, 4)
+}
+
 #[rustfmt::skip]
 fn mult_kernel(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
     let args = parse_macro_input!(input as KernelArgs);
