@@ -5,8 +5,8 @@ use syn::Expr;
 pub type Vars = Vec<Ident>;
 pub type Instr = Vec<TokenStream>;
 
-pub fn index_matrix(ptr: &Expr, stride: &Expr, row: usize, column: usize) -> TokenStream {
-    match (row, column) {
+pub fn index_matrix(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenStream {
+    match (row, col) {
         (0, 0) => quote! { #ptr },
         (0, c) => quote! { #ptr.add(#c) },
         (r, 0) => quote! { #ptr.add(#stride * #r) },
@@ -30,6 +30,15 @@ pub fn name_yvecs(k: usize) -> Vars {
 }
 pub fn name_masks() -> (Ident, Ident) {
     (format_ident!("mask_m"), format_ident!("mask_n"))
+}
+pub fn name_threshold() -> Ident {
+    format_ident!("threshold")
+}
+pub fn increment(ptr: &Expr, stride:&Expr, row:usize, col:usize) ->  TokenStream {
+    let addr = index_matrix(&ptr, &stride, row, col);
+    quote! {
+        #ptr = #addr;
+    }
 }
 pub fn load_vecs(vars: &Vars, ptr: &Expr, stride: &Expr, card: usize) -> Instr {
     let mut loads = Vec::with_capacity(card);
@@ -217,4 +226,52 @@ pub fn mhandle_tail(
         q >>= 1
     }
     tail
+}
+pub fn handle_ltri(mask_n:&Ident, tids:&Vars, xptr:&Expr, yptr:&Expr, s_x:&Expr, s_y:&Expr, b:&Ident, m: usize) -> Instr {
+    let mut tri = Vec::new();
+    for i in 0..m {
+        let mut fmas = Vec::new();
+        for idx in i..m {
+            let ident = &tids[idx];
+            let addr = index_matrix(&xptr, &s_x, idx, 0);
+            fmas.push(quote! {
+                fma_accum!(#ident, #addr, #b)
+            });
+        }
+        let nyaddr = index_matrix(&yptr, &s_y, 1, 0);
+        let nxaddr = index_matrix(&xptr, &s_x, 0, 1);
+        tri.push(quote! {
+            {
+                let #b = mask_load(#mask_n, #yptr);
+                #(#fmas)*
+                #xptr = #nxaddr
+                #yptr = #nyaddr
+            }
+        });
+    }
+    tri
+}
+pub fn handle_utri(mask_n:&Ident, tids:&Vars, xptr:&Expr, yptr:&Expr, s_x:&Expr, s_y:&Expr, b:&Ident, m: usize) -> Instr {
+    let mut tri = Vec::new();
+    for i in 0..m {
+        let mut fmas = Vec::new();
+        for idx in i..m {
+            let ident = &tids[idx];
+            let addr = index_matrix(&xptr, &s_x, idx, 0);
+            fmas.push(quote! {
+                fma_accum!(#ident, #addr, #b)
+            });
+        }
+        let nyaddr = index_matrix(&yptr, &s_y, 1, 0);
+        let nxaddr = index_matrix(&xptr, &s_x, 0, 1);
+        tri.push(quote! {
+            {
+                let #b = mask_load(#mask_n, #yptr);
+                #(#fmas)*
+                #xptr = #nxaddr
+                #yptr = #nyaddr
+            }
+        });
+    }
+    tri
 }
