@@ -8,16 +8,12 @@ use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Result, Token, parse_macro_input};
 
-const M: usize = 8;
-const B: usize = 2;
-
 macro_rules! parse_next {
     ($args:expr, $input:expr) => {
         $args.next().ok_or($input.error("variable not found"))?
     };
 }
 use proc_macro2::{Ident, TokenStream};
-
 
 struct KernelArgs {
     xptr: Expr,
@@ -30,7 +26,6 @@ struct KernelArgs {
     s_y: Expr,
     s_t: Expr,
 }
-// #[rustfmt::skip]
 impl Parse for KernelArgs {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut args = Punctuated::<Expr, Token![,]>::parse_terminated(input)?;
@@ -48,15 +43,8 @@ impl Parse for KernelArgs {
         })
     }
 }
-pub fn kernel_8(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    mult_kernel(input, 8, 2)
-}
-pub fn kernel_4(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    mult_kernel(input, 4, 4)
-}
-
 #[rustfmt::skip]
-fn mult_kernel(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
+pub fn mult_alligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
     let args = parse_macro_input!(input as KernelArgs);
     let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
     let tids = common::name_tvecs(i);
@@ -64,6 +52,7 @@ fn mult_kernel(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::
     let mut tvecs = common::load_vecs(&tids, &tptr, &s_t, i);
     let mut yvecs = common::load_vecs(&yids, &yptr, &s_y, k);
     let mut prod = common::fma_product(&tids, &yids, &xptr, &s_x, i, k);
+    let mut tail = common::handle_tail(&tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
     let mut save = common::write_outcome(&tids, &tptr, &s_t, i);
     
     riffle(&mut tvecs);
@@ -78,57 +67,30 @@ fn mult_kernel(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::
                 #(#yvecs)*
                 #(#prod)*
             }
-            #(#save)*
-        }
-    }
-    .into()
-}
-
-#[rustfmt::skip]
-pub fn mult_alligned(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let args = parse_macro_input!(input as KernelArgs);
-    let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
-    let tids = common::name_tvecs(M);
-    let yids = common::name_yvecs(B);
-    let mut yvecs = common::load_vecs(&yids, &yptr, &s_y, B);
-    let mut tvecs = common::load_vecs(&tids, &tptr, &s_t, M);
-    let mut prod = common::fma_product(&tids, &yids, &xptr, &s_x, M, B);
-    let mut save = common::write_outcome(&tids, &tptr, &s_t, M);
-    
-    riffle(&mut tvecs);
-    riffle_partitions(&mut prod, B);
-    interleave_partitions(&mut prod, B);
-    riffle(&mut save);
-
-    quote! {
-        unsafe {
-            #(#tvecs)*
-            for _ in 0..#p {
-                #(#yvecs)*
-                #(#prod)*
-            }
+            #(#tail)*
             #(#save)*
         }
     }
     .into()
 }
 #[rustfmt::skip]
-pub fn mult_unalligned(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn mult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
     let args = parse_macro_input!(input as KernelArgs);
     let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
-    let tids = common::name_tvecs(M);
-    let yids = common::name_yvecs(B);
+    let tids = common::name_tvecs(i);
+    let yids = common::name_yvecs(k);
     let (mask_m, mask_n) = common::name_masks();
     // instructs
     let masks = common::load_masks(&m, &n); 
-    let mut tvecs = common::mload_vecs(&mask_m, &tids, &tptr, &s_t, M);
-    let mut yvecs = common::mload_vecs(&mask_n, &yids, &yptr, &s_y, B);
-    let mut prod = common::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, M, B);
-    let mut save = common::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, M);
+    let mut tvecs = common::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
+    let mut yvecs = common::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
+    let mut prod = common::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
+    let mut tail = common::mhandle_tail(&mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
+    let mut save = common::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, i);
     
     riffle(&mut tvecs);
-    riffle_partitions(&mut prod, B);
-    interleave_partitions(&mut prod, B);
+    riffle_partitions(&mut prod, k);
+    interleave_partitions(&mut prod, k);
     riffle(&mut save);
 
     quote! {
@@ -139,6 +101,7 @@ pub fn mult_unalligned(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 #(#yvecs)*
                 #(#prod)*
             }
+            #(#tail)*
             #(#save)*
         }
     }

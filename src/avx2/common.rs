@@ -4,6 +4,7 @@ use syn::Expr;
 
 pub type Vars = Vec<Ident>;
 pub type Instr = Vec<TokenStream>;
+
 pub fn index_matrix(ptr: &Expr, stride: &Expr, row: usize, column: usize) -> TokenStream {
     match (row, column) {
         (0, 0) => quote! { #ptr },
@@ -122,14 +123,14 @@ pub fn mwrite_outcome(
 //  k := static unwrap
 //  p := runtime variable
 // fn handle_tail(mask:&Ident, tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, p:Expr, i: usize, k: usize, ) -> TokenStream {
-fn initialize_q(k:usize) -> usize {
+fn initialize_q(k: usize) -> usize {
     if k.count_ones() == 1 {
         k >> 1
     } else {
         1 << (usize::BITS - k.leading_zeros() - 1)
     }
 }
-fn handle_tail(
+pub fn handle_tail(
     tids: &Vars,
     yids: &Vars,
     xptr: &Expr,
@@ -137,9 +138,9 @@ fn handle_tail(
     s_x: &Expr,
     s_y: &Expr,
     p: &Expr,
-    i: usize,
     k: usize,
 ) -> Instr {
+    // binary decomp of the k variable
     let mut q = initialize_q(k);
     let mut tail = Vec::new();
     let yname = format_ident!("yptr");
@@ -147,7 +148,7 @@ fn handle_tail(
         let mut section = Vec::new();
         for bdx in 0..q {
             let bname = &yids[bdx];
-            let yaddr = index_matrix(&yptr, &s_y, bdx,0);
+            let yaddr = index_matrix(&yptr, &s_y, bdx, 0);
             section.push(quote! {
                 let #bname = _mm256_loadu(#yaddr);
             });
@@ -158,7 +159,7 @@ fn handle_tail(
             for (idx, ident) in tids.iter().enumerate() {
                 let addr = index_matrix(&xptr, &s_x, idx, bdx);
                 section.push(quote! {
-                    mfma_accum!(#mask[#idx], #ident, #addr, #bname);
+                    fma_accum!(#ident, #addr, #bname);
                 });
             }
         }
@@ -173,9 +174,9 @@ fn handle_tail(
     }
     tail
 }
-// TODO: the load needs to be mask_n and the filter needs to be mask_m
-fn mhandle_tail(
-    mask: &Ident,
+pub fn mhandle_tail(
+    mask_m: &Ident,
+    mask_n: &Ident,
     tids: &Vars,
     yids: &Vars,
     xptr: &Expr,
@@ -183,7 +184,6 @@ fn mhandle_tail(
     s_x: &Expr,
     s_y: &Expr,
     p: &Expr,
-    i: usize,
     k: usize,
 ) -> Instr {
     let mut q = initialize_q(k);
@@ -193,9 +193,9 @@ fn mhandle_tail(
         let mut section = Vec::new();
         for bdx in 0..q {
             let bname = &yids[bdx];
-            let yaddr = index_matrix(&yptr, &s_y, bdx,0);
+            let yaddr = index_matrix(&yptr, &s_y, bdx, 0);
             section.push(quote! {
-                let #bname = mask_load(#mask, #yaddr);
+                let #bname = mask_load(#mask_n, #yaddr);
             });
         }
 
@@ -204,7 +204,7 @@ fn mhandle_tail(
             for (idx, ident) in tids.iter().enumerate() {
                 let addr = index_matrix(&xptr, &s_x, idx, bdx);
                 section.push(quote! {
-                    mfma_accum!(#mask[#idx], #ident, #addr, #bname);
+                    mfma_accum!(#mask_m[#idx], #ident, #addr, #bname);
                 });
             }
         }
