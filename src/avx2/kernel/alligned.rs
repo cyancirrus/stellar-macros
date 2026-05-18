@@ -1,9 +1,7 @@
-#![allow(unused)]
-use crate::avx2::common;
-use crate::avx2::common::{Instr, Vars, index_matrix};
-use crate::instructs::perms::{interleave, interleave_partitions, riffle, riffle_partitions};
+use crate::avx2::emitters;
+use crate::instructs::perms::{interleave_partitions, riffle, riffle_partitions};
 use proc_macro;
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Result, Token, parse_macro_input};
@@ -13,7 +11,6 @@ macro_rules! parse_next {
         $args.next().ok_or($input.error("variable not found"))?
     };
 }
-use proc_macro2::{Ident, TokenStream};
 
 struct KernelArgs {
     xptr: Expr,
@@ -28,7 +25,7 @@ struct KernelArgs {
 }
 impl Parse for KernelArgs {
     fn parse(input: ParseStream) -> Result<Self> {
-        let mut args = Punctuated::<Expr, Token![,]>::parse_terminated(input)?;
+        let args = Punctuated::<Expr, Token![,]>::parse_terminated(input)?;
         let mut args = args.into_iter();
         Ok(Self {
             xptr: parse_next!(args, input),
@@ -46,14 +43,14 @@ impl Parse for KernelArgs {
 #[rustfmt::skip]
 pub fn mult_alligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
     let args = parse_macro_input!(input as KernelArgs);
-    let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
-    let tids = common::name_tvecs(i);
-    let yids = common::name_yvecs(k);
-    let mut tvecs = common::load_vecs(&tids, &tptr, &s_t, i);
-    let mut yvecs = common::load_vecs(&yids, &yptr, &s_y, k);
-    let mut prod = common::fma_product(&tids, &yids, &xptr, &s_x, i, k);
-    let mut tail = common::handle_tail(&tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
-    let mut save = common::write_outcome(&tids, &tptr, &s_t, i);
+    let KernelArgs { xptr, yptr, tptr, m: _, p, n: _, s_x, s_y, s_t} = args;
+    let tids = emitters::name_tvecs(i);
+    let yids = emitters::name_yvecs(k);
+    let mut tvecs = emitters::load_vecs(&tids, &tptr, &s_t, i);
+    let yvecs = emitters::load_vecs(&yids, &yptr, &s_y, k);
+    let mut prod = emitters::fma_product(&tids, &yids, &xptr, &s_x, i, k);
+    let tail = emitters::handle_tail(&tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
+    let mut save = emitters::write_outcome(&tids, &tptr, &s_t, i);
     
     riffle(&mut tvecs);
     riffle_partitions(&mut prod, k);
@@ -77,16 +74,16 @@ pub fn mult_alligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_m
 pub fn mult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
     let args = parse_macro_input!(input as KernelArgs);
     let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
-    let tids = common::name_tvecs(i);
-    let yids = common::name_yvecs(k);
-    let (mask_m, mask_n) = common::name_masks();
+    let tids = emitters::name_tvecs(i);
+    let yids = emitters::name_yvecs(k);
+    let (mask_m, mask_n) = emitters::name_masks();
     // instructs
-    let masks = common::load_masks(&m, &n); 
-    let mut tvecs = common::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
-    let mut yvecs = common::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
-    let mut prod = common::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
-    let mut tail = common::mhandle_tail(&mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
-    let mut save = common::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, i);
+    let masks = emitters::load_masks(&m, &n); 
+    let mut tvecs = emitters::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
+    let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
+    let mut prod = emitters::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
+    let tail = emitters::mhandle_tail(&mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
+    let mut save = emitters::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, i);
     
     riffle(&mut tvecs);
     riffle_partitions(&mut prod, k);

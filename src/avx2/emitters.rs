@@ -122,7 +122,6 @@ pub fn mwrite_outcome(
 /// * when unrolling b terms we need to handle the tail
 //  k := static unwrap
 //  p := runtime variable
-// fn handle_tail(mask:&Ident, tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, p:Expr, i: usize, k: usize, ) -> TokenStream {
 fn initialize_q(k: usize) -> usize {
     if k.count_ones() == 1 {
         k >> 1
