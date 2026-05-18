@@ -15,6 +15,13 @@ pub fn index_matrix(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenS
         (r, c) => quote! { #ptr.add(#stride * #r + #c) },
     }
 }
+pub fn name_vecs(prefix: &str, m: usize) -> Vars {
+    let mut idents = Vec::with_capacity(m);
+    for idx in 0..m {
+        idents.push(format_ident!("{prefix:?}{idx:?}"));
+    }
+    idents
+}
 
 pub fn name_tvecs(m: usize) -> Vars {
     let mut idents = Vec::with_capacity(m);
@@ -77,11 +84,15 @@ pub fn load_masks(m: &Expr, n: &Expr) -> TokenStream {
         let mask_n = MASK[#n];
     }
 }
-pub fn load_mask0(id:&Ident) -> TokenStream {
+pub fn load_mask_zero(id: &Ident) -> TokenStream {
     quote! {
         let #id:[i32; 8] = [0; 8];
     }
-
+}
+pub fn load_mask_val(id: &Ident, o: &Expr) -> TokenStream {
+    quote! {
+        let #id = MASK[#o]
+    }
 }
 pub fn fma_product(tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, m: usize, k: usize) -> Instr {
     let mut products = Vec::with_capacity(m * k);
@@ -309,7 +320,7 @@ pub fn lhandle_uptri(
     }
     tri
 }
-/// rhandle_ltrie
+/// rhandle_lowtrie
 ///
 /// A * L
 /// handles the top part of L column slice
@@ -341,6 +352,39 @@ pub fn rhandle_lowtrie(
             #yptr = #ynaddr;
             #xptr = #xnaddr;
         }
-
+    }
+}
+/// rhandle_uptrie
+///
+/// A * U
+/// handles the top part of U row slice
+pub fn rhandle_uptrie(
+    mask_n: &Ident,
+    mask_t: &Ident,
+    tids: &Vars,
+    xptr: &Expr,
+    yptr: &Expr,
+    s_x: &Expr,
+    s_y: &Expr,
+    h: &Ident,
+    b: &Ident,
+) -> TokenStream {
+    let mut fmas = Vec::new();
+    for (idx, ident) in tids.iter().enumerate() {
+        let xaddr = index_matrix(&xptr, &s_x, idx, 0);
+        fmas.push(quote! {
+            mfma_accum!(#mask_t[#idx], #ident, #xaddr, #b);
+        });
+    }
+    let ynaddr = index_matrix(&yptr, &s_y, 1, 0);
+    let xnaddr = index_matrix(&xptr, &s_x, 0, 1);
+    quote! {
+        for j in (0..#h).rev() {
+            let #b = mask_load(#mask_t, #yptr);
+            #(#fmas)*
+            #yptr = #ynaddr;
+            #xptr = #xnaddr;
+            #mask_t[j] = 0;
+        }
     }
 }

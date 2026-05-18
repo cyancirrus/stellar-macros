@@ -239,20 +239,25 @@ pub fn rmult_lower_tri(
     let mask_t = emitters::name_mask0();
     // instructs
     let lmasks = emitters::load_masks(&m, &n);
-    let lfilter= emitters::load_mask0(&mask_t);
+    let lfilter = emitters::load_mask_zero(&mask_t);
     let tvecs = emitters::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
     let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
     let xinc = emitters::increment(&xptr, &s_x, 0, k);
     let fma = emitters::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
-    let tail = emitters::mhandle_tail( &mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
-    let tri = emitters::rhandle_lowtrie(&mask_n, &mask_t, &tids, &xptr, &yptr, &s_x, &s_y, &hid, &yids[0]);
+    let tail = emitters::mhandle_tail(
+        &mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k,
+    );
+    let tri = emitters::rhandle_lowtrie(
+        &mask_n, &mask_t, &tids, &xptr, &yptr, &s_x, &s_y, &hid, &yids[0],
+    );
     let save = emitters::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, i);
     quote! {
         unsafe {
             #lmasks
             #(#tvecs)*
             #hid
+            #lfilter
             #tri
             for _ in #hid..#p / #k {
                 #(#yvecs)*
@@ -260,6 +265,62 @@ pub fn rmult_lower_tri(
                 #xinc
                 #yinc
             }
+            #(#tail)*
+            #(#save)*
+        }
+    }
+    .into()
+}
+pub fn rmult_upper_tri(
+    input: proc_macro::TokenStream,
+    i: usize,
+    k: usize,
+) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(input as KernelArgs);
+    let KernelArgs {
+        xptr,
+        yptr,
+        tptr,
+        m,
+        p,
+        n,
+        s_x,
+        s_y,
+        s_t,
+    } = args;
+    let tids = emitters::name_vecs("m", i);
+    let yids = emitters::name_vecs("b", k);
+    let hid = emitters::name_threshold();
+    let (mask_m, mask_n) = emitters::name_masks();
+    let mask_t = emitters::name_mask0();
+    // instructs
+    let lmasks = emitters::load_masks(&m, &n);
+    let lfilter = emitters::load_mask_val(&mask_t, &n);
+    let tvecs = emitters::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
+    let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
+    let yinc = emitters::increment(&yptr, &s_y, k, 0);
+    let xinc = emitters::increment(&xptr, &s_x, 0, k);
+    let fma = emitters::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
+    let tail = emitters::mhandle_tail(
+        &mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k,
+    );
+    let tri = emitters::rhandle_uptrie(
+        &mask_n, &mask_t, &tids, &xptr, &yptr, &s_x, &s_y, &hid, &yids[0],
+    );
+    let save = emitters::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, i);
+    quote! {
+        unsafe {
+            #lmasks
+            #(#tvecs)*
+            #hid
+            for _ in #hid..#p / #k {
+                #(#yvecs)*
+                #(#fma)*
+                #xinc
+                #yinc
+            }
+            #lfilter
+            #tri
             #(#tail)*
             #(#save)*
         }
