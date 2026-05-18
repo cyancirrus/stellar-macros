@@ -51,6 +51,7 @@ pub fn mult_alligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_m
     let tvecs = emitters::load_vecs(&tids, &tptr, &s_t, i);
     let yvecs = emitters::load_vecs(&yids, &yptr, &s_y, k);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
+    let xinc = emitters::increment(&yptr, &s_y, 0, k);
     let prod = emitters::fma_product(&tids, &yids, &xptr, &s_x, i, k);
     let tail = emitters::handle_tail(&tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
     let save = emitters::write_outcome(&tids, &tptr, &s_t, i);
@@ -66,6 +67,7 @@ pub fn mult_alligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_m
             for _ in 0..#p {
                 #(#yvecs)*
                 #(#prod)*
+                #xinc
                 #yinc
             }
             #(#tail)*
@@ -86,6 +88,7 @@ pub fn mult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc
     let tvecs = emitters::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
     let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
+    let xinc = emitters::increment(&yptr, &s_y, 0, k);
     let prod = emitters::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
     let tail = emitters::mhandle_tail(&mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
     let save = emitters::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, i);
@@ -103,6 +106,7 @@ pub fn mult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc
                 #(#yvecs)*
                 #(#prod)*
                 #yinc
+                #xinc
             }
             #(#tail)*
             #(#save)*
@@ -110,9 +114,6 @@ pub fn mult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc
     }
     .into()
 }
-use proc_macro2::{Ident, TokenStream};
-pub type Vars = Vec<Ident>;
-pub type Instr = Vec<TokenStream>;
 pub fn lmult_lower_tri(
     input: proc_macro::TokenStream,
     i: usize,
@@ -139,6 +140,7 @@ pub fn lmult_lower_tri(
     let tvecs = emitters::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
     let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
+    let xinc = emitters::increment(&yptr, &s_y, 0, k);
     let fma = emitters::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
     let tail = emitters::mhandle_tail(
         &mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k,
@@ -152,6 +154,7 @@ pub fn lmult_lower_tri(
             for _ in #hid..#p / #k {
                 #(#yvecs)*
                 #(#fma)*
+                #xinc
                 #yinc
             }
             #(#tail)*
@@ -189,6 +192,7 @@ pub fn lmult_upper_tri(
     let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
     let tri = emitters::lhandle_uptri(&mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
+    let xinc = emitters::increment(&xptr, &s_x, 0, k);
     let fma = emitters::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
     let tail = emitters::mhandle_tail(
         &mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k,
@@ -202,6 +206,58 @@ pub fn lmult_upper_tri(
             for _ in #hid..#p / #k {
                 #(#yvecs)*
                 #(#fma)*
+                #yinc
+                #xinc
+            }
+            #(#tail)*
+            #(#save)*
+        }
+    }
+    .into()
+}
+pub fn rmult_lower_tri(
+    input: proc_macro::TokenStream,
+    i: usize,
+    k: usize,
+) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(input as KernelArgs);
+    let KernelArgs {
+        xptr,
+        yptr,
+        tptr,
+        m,
+        p,
+        n,
+        s_x,
+        s_y,
+        s_t,
+    } = args;
+    let tids = emitters::name_tvecs(i);
+    let yids = emitters::name_yvecs(k);
+    let hid = emitters::name_threshold();
+    let (mask_m, mask_n) = emitters::name_masks();
+    let mask_t = emitters::name_mask0();
+    // instructs
+    let lmasks = emitters::load_masks(&m, &n);
+    let lfilter= emitters::load_mask0(&mask_t);
+    let tvecs = emitters::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
+    let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
+    let yinc = emitters::increment(&yptr, &s_y, k, 0);
+    let xinc = emitters::increment(&xptr, &s_x, 0, k);
+    let fma = emitters::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
+    let tail = emitters::mhandle_tail( &mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
+    let tri = emitters::rhandle_lowtrie(&mask_n, &mask_t, &tids, &xptr, &yptr, &s_x, &s_y, &hid, &yids[0]);
+    let save = emitters::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, i);
+    quote! {
+        unsafe {
+            #lmasks
+            #(#tvecs)*
+            #hid
+            #tri
+            for _ in #hid..#p / #k {
+                #(#yvecs)*
+                #(#fma)*
+                #xinc
                 #yinc
             }
             #(#tail)*

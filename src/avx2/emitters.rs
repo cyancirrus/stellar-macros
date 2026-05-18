@@ -1,9 +1,10 @@
-#[allow(unused)]
+#![allow(unused)]
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::Expr;
 
 pub type Vars = Vec<Ident>;
+pub type Args = Vec<Expr>;
 pub type Instr = Vec<TokenStream>;
 
 pub fn index_matrix(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenStream {
@@ -31,6 +32,9 @@ pub fn name_yvecs(k: usize) -> Vars {
 }
 pub fn name_masks() -> (Ident, Ident) {
     (format_ident!("mask_m"), format_ident!("mask_n"))
+}
+pub fn name_mask0() -> Ident {
+    format_ident!("mask_t")
 }
 pub fn name_threshold() -> Ident {
     format_ident!("threshold")
@@ -72,6 +76,12 @@ pub fn load_masks(m: &Expr, n: &Expr) -> TokenStream {
         let mask_m = MASK[#m];
         let mask_n = MASK[#n];
     }
+}
+pub fn load_mask0(id:&Ident) -> TokenStream {
+    quote! {
+        let #id:[i32; 8] = [0; 8];
+    }
+
 }
 pub fn fma_product(tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, m: usize, k: usize) -> Instr {
     let mut products = Vec::with_capacity(m * k);
@@ -250,7 +260,7 @@ pub fn lhandle_lowtri(
             let ident = &tids[idx];
             let addr = index_matrix(&xptr, &s_x, idx, 0);
             fmas.push(quote! {
-                fma_accum!(#ident, #addr, #b)
+                fma_accum!(#ident, #addr, #b);
             });
         }
         let nyaddr = index_matrix(&yptr, &s_y, 1, 0);
@@ -259,8 +269,8 @@ pub fn lhandle_lowtri(
             {
                 let #b = mask_load(#mask_n, #yptr);
                 #(#fmas)*
-                #xptr = #nxaddr
-                #yptr = #nyaddr
+                #xptr = #nxaddr;
+                #yptr = #nyaddr;
             }
         });
     }
@@ -283,7 +293,7 @@ pub fn lhandle_uptri(
             let ident = &tids[idx];
             let addr = index_matrix(&xptr, &s_x, idx, 0);
             fmas.push(quote! {
-                fma_accum!(#ident, #addr, #b)
+                fma_accum!(#ident, #addr, #b);
             });
         }
         let nyaddr = index_matrix(&yptr, &s_y, 1, 0);
@@ -292,8 +302,8 @@ pub fn lhandle_uptri(
             {
                 let #b = mask_load(#mask_n, #yptr);
                 #(#fmas)*
-                #xptr = #nxaddr
-                #yptr = #nyaddr
+                #xptr = #nxaddr;
+                #yptr = #nyaddr;
             }
         });
     }
@@ -301,39 +311,36 @@ pub fn lhandle_uptri(
 }
 /// rhandle_ltrie
 ///
-/// handles A * L
-pub fn rhandle_ltrie(
-    mask_m: &Ident,
+/// A * L
+/// handles the top part of L column slice
+pub fn rhandle_lowtrie(
+    mask_n: &Ident,
     mask_t: &Ident,
-    hid: &Ident,
     tids: &Vars,
     xptr: &Expr,
     yptr: &Expr,
     s_x: &Expr,
     s_y: &Expr,
+    h: &Ident,
     b: &Ident,
-    i: usize,
-    k: usize,
-) -> Instr {
-    let mut tri = Vec::new();
-    for kdx in 0..i {
-        let mut fmas = Vec::new();
-        for (idx, ident) in tids.iter().enumerate() {
-            let xaddr = index_matrix(&xptr, &s_x, idx, 0);
-            fmas.push(quote! {
-                mfma_accum!(#mask_m[#idx], #ident, #xaddr, #b);
-            });
-        }
-        let ynaddr = index_matrix(&yptr, &s_y, 1, 0);
-        let xnaddr = index_matrix(&xptr, &s_x, 0, 1);
-        tri.push(quote! {
-            #mask_t[#kdx] = #mask_t[#kdx];
-            #b = mask_load(#mask_t, #yptr);
+) -> TokenStream {
+    let mut fmas = Vec::new();
+    for (idx, ident) in tids.iter().enumerate() {
+        let xaddr = index_matrix(&xptr, &s_x, idx, 0);
+        fmas.push(quote! {
+            mfma_accum!(#mask_t[#idx], #ident, #xaddr, #b);
+        });
+    }
+    let ynaddr = index_matrix(&yptr, &s_y, 1, 0);
+    let xnaddr = index_matrix(&xptr, &s_x, 0, 1);
+    quote! {
+        for i in 0..#h {
+            #mask_t[i] = #mask_n[i];
+            let #b = mask_load(#mask_t, #yptr);
             #(#fmas)*
             #yptr = #ynaddr;
             #xptr = #xnaddr;
+        }
 
-        });
     }
-    tri
 }
