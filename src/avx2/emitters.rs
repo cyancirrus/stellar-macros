@@ -15,36 +15,15 @@ pub fn index_matrix(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenS
         (r, c) => quote! { #ptr.add(#stride * #r + #c) },
     }
 }
-pub fn name_vecs(prefix: &str, m: usize) -> Vars {
+pub fn name_range(prefix: &str, m: usize) -> Vars {
     let mut idents = Vec::with_capacity(m);
     for idx in 0..m {
         idents.push(format_ident!("{prefix:?}{idx:?}"));
     }
     idents
 }
-
-pub fn name_tvecs(m: usize) -> Vars {
-    let mut idents = Vec::with_capacity(m);
-    for idx in 0..m {
-        idents.push(format_ident!("r{idx:?}"));
-    }
-    idents
-}
-pub fn name_yvecs(k: usize) -> Vars {
-    let mut yids = Vec::with_capacity(k);
-    for idx in 0..k {
-        yids.push(format_ident!("b{idx:?}"));
-    }
-    yids
-}
-pub fn name_masks() -> (Ident, Ident) {
-    (format_ident!("mask_m"), format_ident!("mask_n"))
-}
-pub fn name_mask0() -> Ident {
-    format_ident!("mask_t")
-}
-pub fn name_threshold() -> Ident {
-    format_ident!("threshold")
+pub fn name(content: &str) -> Ident {
+    format_ident!("{content:?}")
 }
 pub fn increment(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenStream {
     let addr = index_matrix(&ptr, &stride, row, col);
@@ -52,48 +31,61 @@ pub fn increment(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenStre
         #ptr = #addr;
     }
 }
-pub fn threshold(threshold: &Ident, m: &Expr, p: &Expr) -> proc_macro::TokenStream {
+pub fn threshold(threshold: &Ident, m: &Expr, p: &Expr) -> TokenStream {
     quote! {
         let #threshold = #m.min(#p);
     }
-    .into()
 }
+pub fn init_var(name: &Ident, val: &TokenStream) -> TokenStream {
+    quote! {
+        let mut #name = #val
+    }
+}
+pub fn lvec(name: &Ident, ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenStream {
+    let addr = index_matrix(&ptr, &stride, row, 0);
+    quote! {
+        let mut #name = _mm256_loadu_ps(#addr);
+    }
+}
+pub fn mlvec(
+    mask: &Ident,
+    name: &Ident,
+    ptr: &Expr,
+    stride: &Expr,
+    row: usize,
+    col: usize,
+) -> TokenStream {
+    let addr = index_matrix(&ptr, &stride, row, col);
+    quote! {
+        let mut #name = mask_load(#mask, #addr);
+    }
+}
+pub fn fma(
+    name: &Ident,
+    b: &Expr,
+    ptr: &Expr,
+    stride: &Expr,
+    row: usize,
+    col: usize,
+) -> TokenStream {
+    let addr = index_matrix(&ptr, &stride, row, col);
+    quote! {
+        fma_accum!(#name, #addr, #b);
+    }
+}
+#[rustfmt::skip]
 pub fn load_vecs(vars: &Vars, ptr: &Expr, stride: &Expr, card: usize) -> Instr {
-    let mut loads = Vec::with_capacity(card);
-    for (idx, name) in vars.iter().enumerate() {
-        let addr = index_matrix(&ptr, &stride, idx, 0);
-        loads.push(quote! {
-            let mut #name = _mm256_loadu_ps(#addr);
-        });
-    }
-    loads
+    vars.iter().enumerate().map(
+        |(idx, name)| lvec(&name, &ptr, &stride, idx,0)
+    ).collect()
 }
+#[rustfmt::skip]
 pub fn mload_vecs(mask: &Ident, vars: &Vars, ptr: &Expr, stride: &Expr, card: usize) -> Instr {
-    let mut loads = Vec::with_capacity(card);
-    for (idx, name) in vars.iter().enumerate() {
-        let addr = index_matrix(&ptr, &stride, idx, 0);
-        loads.push(quote! {
-            let mut #name = mask_load(#addr, #mask);
-        });
-    }
-    loads
+    vars.iter().enumerate().map(
+        |(idx, name)| mlvec(&mask,&name, &ptr, &stride, idx, 0)
+    ).collect()
 }
-pub fn load_masks(m: &Expr, n: &Expr) -> TokenStream {
-    quote! {
-        let mask_m = MASK[#m];
-        let mask_n = MASK[#n];
-    }
-}
-pub fn load_mask_zero(id: &Ident) -> TokenStream {
-    quote! {
-        let #id:[i32; 8] = [0; 8];
-    }
-}
-pub fn load_mask_val(id: &Ident, o: &Expr) -> TokenStream {
-    quote! {
-        let #id = MASK[#o]
-    }
-}
+
 pub fn fma_product(tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, m: usize, k: usize) -> Instr {
     let mut products = Vec::with_capacity(m * k);
     for (bdx, b) in yids.iter().enumerate() {
@@ -148,7 +140,7 @@ pub fn mwrite_outcome(
     for (idx, var) in tids.iter().enumerate() {
         let addr = index_matrix(&tptr, &s_t, idx, 0);
         saves.push(quote! {
-            mask_store_ctrl(#addr, #mask_n, #var, #mask_m[#idx]);
+            mask_store_ctrl(#mask_m[#idx], #mask_n, #addr, #var);
         });
     }
     saves
@@ -233,7 +225,6 @@ pub fn mhandle_tail(
                 let #bname = mask_load(#mask_n, #yaddr);
             });
         }
-
         for bdx in 0..q {
             let bname = &yids[bdx];
             for (idx, ident) in tids.iter().enumerate() {
