@@ -11,19 +11,21 @@ pub fn index_matrix(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenS
     match (row, col) {
         (0, 0) => quote! { #ptr },
         (0, c) => quote! { #ptr.add(#c) },
+        (1, 0) => quote! { #ptr.add(#stride) },
         (r, 0) => quote! { #ptr.add(#stride * #r) },
+        (1, c) => quote! { #ptr.add(#stride + #c) },
         (r, c) => quote! { #ptr.add(#stride * #r + #c) },
     }
 }
 pub fn name_range(prefix: &str, m: usize) -> Vars {
     let mut idents = Vec::with_capacity(m);
     for idx in 0..m {
-        idents.push(format_ident!("{prefix:?}{idx:?}"));
+        idents.push(format_ident!("{prefix:}{idx:}"));
     }
     idents
 }
 pub fn name(content: &str) -> Ident {
-    format_ident!("{content:?}")
+    format_ident!("{content:}")
 }
 pub fn increment(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenStream {
     let addr = index_matrix(&ptr, &stride, row, col);
@@ -31,14 +33,9 @@ pub fn increment(ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenStre
         #ptr = #addr;
     }
 }
-pub fn threshold(threshold: &Ident, m: &Expr, p: &Expr) -> TokenStream {
-    quote! {
-        let #threshold = #m.min(#p);
-    }
-}
 pub fn init_var(name: &Ident, val: &TokenStream) -> TokenStream {
     quote! {
-        let mut #name = #val
+        let mut #name = #val;
     }
 }
 pub fn lvec(name: &Ident, ptr: &Expr, stride: &Expr, row: usize, col: usize) -> TokenStream {
@@ -170,14 +167,15 @@ pub fn handle_tail(
     // binary decomp of the k variable
     let mut q = initialize_q(k);
     let mut tail = Vec::new();
-    let yname = format_ident!("yptr");
+    let yname = name("yptr");
+    let xname = name("xptr");
     while q > 0 {
         let mut section = Vec::new();
         for bdx in 0..q {
             let bname = &yids[bdx];
             let yaddr = index_matrix(&yptr, &s_y, bdx, 0);
             section.push(quote! {
-                let #bname = _mm256_loadu(#yaddr);
+                let #bname = _mm256_loadu_ps(#yaddr);
             });
         }
 
@@ -190,11 +188,13 @@ pub fn handle_tail(
                 });
             }
         }
-        let naddr = index_matrix(&yptr, &s_y, q, 0);
+        let nyaddr = index_matrix(&yptr, &s_y, q, 0);
+        let nxaddr = index_matrix(&xptr, &s_x, 0, 1);
         tail.push(quote! {
             if #q & #p != 0 {
                 #(#section)*
-                #yname = #naddr;
+                #xname = #nxaddr;
+                #yname = #nyaddr;
             }
         });
         q >>= 1
@@ -215,7 +215,6 @@ pub fn mhandle_tail(
 ) -> Instr {
     let mut q = initialize_q(k);
     let mut tail = Vec::new();
-    let yname = format_ident!("yptr");
     while q > 0 {
         let mut section = Vec::new();
         for bdx in 0..q {
@@ -238,7 +237,7 @@ pub fn mhandle_tail(
         tail.push(quote! {
             if #q & #p != 0 {
                 #(#section)*
-                #yname = #naddr;
+                #yptr = #naddr;
             }
         });
         q >>= 1
@@ -278,6 +277,7 @@ pub fn lhandle_lowtri(
     }
     tri
 }
+/// U * A
 pub fn lhandle_uptri(
     mask_n: &Ident,
     tids: &Vars,
@@ -349,7 +349,7 @@ pub fn rhandle_lowtrie(
 ///
 /// A * U
 /// handles the top part of U row slice
-pub fn rhandle_uptrie(
+pub fn rhandle_uptri(
     mask_n: &Ident,
     mask_t: &Ident,
     tids: &Vars,
