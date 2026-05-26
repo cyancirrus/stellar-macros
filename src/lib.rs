@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 mod avx2;
 mod instructs;
 
-const M: usize = 8;
+const M: usize = 4;
 const B: usize = 2;
 
 #[proc_macro]

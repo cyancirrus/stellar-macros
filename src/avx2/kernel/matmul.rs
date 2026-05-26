@@ -139,7 +139,6 @@ pub fn lmult_lower_tri(
     let thresh = emitters::name("threshold");
     let mask_nptr = emitters::name("mask_nptr");
     let mask_n = emitters::name("mask_n");
-    let mask_t = emitters::name("mask_t");
     let bmask_m = emitters::name("mask_m");
     // instructs
     let load_thresh = emitters::init_var(&thresh, &quote! { #m.min(#p) });
@@ -150,7 +149,7 @@ pub fn lmult_lower_tri(
     let tvecs = emitters::mload_vecs(&mask_n, &tids, &tptr, &s_t, i);
     let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
-    let xinc = emitters::increment(&yptr, &s_y, 0, k);
+    let xinc = emitters::increment(&xptr, &s_x, 0, k);
     let fma = emitters::mfma_product(&bmask_m, &tids, &yids, &xptr, &s_x, i, k);
     let tail = emitters::mhandle_tail(
         &bmask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k,
