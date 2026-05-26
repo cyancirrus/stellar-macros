@@ -140,9 +140,11 @@ pub fn lmult_lower_tri(
     let mask_nptr = emitters::name("mask_nptr");
     let mask_n = emitters::name("mask_n");
     let bmask_m = emitters::name("mask_m");
+    let bmask_t = emitters::name("mask_t");
     // instructs
     let load_thresh = emitters::init_var(&thresh, &quote! { #m.min(#p) });
     let load_bmask_m = emitters::init_var(&bmask_m, &quote! { MASK[#m] });
+    let load_bmask_t = emitters::init_var(&bmask_t, &quote! { #bmask_m });
     let load_mask_nptr = emitters::init_var(&mask_nptr, &quote! { MASK[n].as_ptr() as *const __m256i });
     let load_mask_n = emitters::init_var(&mask_n, &quote! { _mm256_loadu_si256(#mask_nptr) });
     let load_mask_t = emitters::init_var(&mask_n, &quote! { #mask_n });
@@ -154,7 +156,7 @@ pub fn lmult_lower_tri(
     let tail = emitters::mhandle_tail(
         &bmask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k,
     );
-    let tri = emitters::lhandle_lowtri(&mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
+    let tri = emitters::unalligned_lhandle_lowtri(&thresh, &bmask_t, &mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
     let save = emitters::mwrite_outcome(&bmask_m, &mask_n, &tids, &tptr, &s_t, i);
     quote! {
         unsafe {
@@ -165,13 +167,15 @@ pub fn lmult_lower_tri(
             #(#tvecs)*
             for _ in #thresh..#p / #k {
                 #(#yvecs)*
+                #yinc
                 #(#fma)*
                 #xinc
-                #yinc
             }
-            #(#tail)*
-            #load_mask_t
-            #(#tri)*
+            if #thresh > #i {
+                #(#tail)*
+            }
+            #load_bmask_t
+            #tri
             #(#save)*
         }
     }
@@ -223,8 +227,8 @@ pub fn lmult_upper_tri(
             #(#tri)*
             for _ in #hid..#p / #k {
                 #(#yvecs)*
-                #(#fma)*
                 #yinc
+                #(#fma)*
                 #xinc
             }
             #(#tail)*

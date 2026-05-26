@@ -109,7 +109,7 @@ pub fn mfma_product(
         for (idx, ident) in tids.iter().enumerate() {
             let addr = index_matrix(&xptr, &s_x, idx, bdx);
             products.push(quote! {
-                mfma_accum!(#mask[#idx], #ident, #addr, #bname);
+                #ident = cfma_accum(#mask[#idx], #ident, #addr, #bname);
             });
         }
     }
@@ -216,11 +216,12 @@ pub fn mhandle_tail(
     let mut q = initialize_q(k);
     let mut tail = Vec::new();
     while q > 0 {
-        let mut section = Vec::new();
+        let mut load = Vec::new();
+        let mut fma = Vec::new();
         for bdx in 0..q {
             let bname = &yids[bdx];
             let yaddr = index_matrix(&yptr, &s_y, bdx, 0);
-            section.push(quote! {
+            load.push(quote! {
                 let #bname = mask_load(#mask_n, #yaddr);
             });
         }
@@ -228,21 +229,100 @@ pub fn mhandle_tail(
             let bname = &yids[bdx];
             for (idx, ident) in tids.iter().enumerate() {
                 let addr = index_matrix(&xptr, &s_x, idx, bdx);
-                section.push(quote! {
-                    mfma_accum!(#mask_m[#idx], #ident, #addr, #bname);
+                fma.push(quote! {
+                    #ident = cfma_accum(#mask_m[#idx], #ident, #addr, #bname);
                 });
             }
         }
-        let naddr = index_matrix(&yptr, &s_y, q, 0);
+        let nyaddr = index_matrix(&yptr, &s_y, q, 0);
+        let nxaddr = index_matrix(&xptr, &s_x, 0, q);
         tail.push(quote! {
             if #q & #p != 0 {
-                #(#section)*
-                #yptr = #naddr;
+                #(#load)*
+                #yptr = #nyaddr;
+                #(#fma)*
+                #xptr = #nxaddr;
             }
         });
         q >>= 1
     }
     tail
+}
+// pub fn mhandle_tail(
+//     mask_m: &Ident,
+//     mask_n: &Ident,
+//     tids: &Vars,
+//     yids: &Vars,
+//     xptr: &Expr,
+//     yptr: &Expr,
+//     s_x: &Expr,
+//     s_y: &Expr,
+//     p: &Expr,
+//     k: usize,
+// ) -> Instr {
+//     let mut q = initialize_q(k);
+//     let mut tail = Vec::new();
+//     while q > 0 {
+//         let mut section = Vec::new();
+//         for bdx in 0..q {
+//             let bname = &yids[bdx];
+//             let yaddr = index_matrix(&yptr, &s_y, bdx, 0);
+//             section.push(quote! {
+//                 let #bname = mask_load(#mask_n, #yaddr);
+//             });
+//         }
+//         for bdx in 0..q {
+//             let bname = &yids[bdx];
+//             for (idx, ident) in tids.iter().enumerate() {
+//                 let addr = index_matrix(&xptr, &s_x, idx, bdx);
+//                 section.push(quote! {
+//                     #ident = cfma_accum(#mask_m[#idx], #ident, #addr, #bname);
+//                 });
+//             }
+//         }
+//         let nyaddr = index_matrix(&yptr, &s_y, q, 0);
+//         let nxaddr = index_matrix(&xptr, &s_x, 0, q);
+//         tail.push(quote! {
+//             if #q & #p != 0 {
+//                 #(#section)*
+//                 #yptr = #nyaddr;
+//                 #xptr = #nxaddr;
+//             }
+//         });
+//         q >>= 1
+//     }
+//     tail
+// }
+pub fn unalligned_lhandle_lowtri(
+    thresh: &Ident,
+    mask_t: &Ident,
+    mask_n: &Ident,
+    tids: &Vars,
+    xptr: &Expr,
+    yptr: &Expr,
+    s_x: &Expr,
+    s_y: &Expr,
+    b: &Ident,
+    m: usize,
+) -> TokenStream {
+    let mut fmas = Vec::new();
+    for (idx, ident) in tids.iter().enumerate() {
+        let xaddr = index_matrix(&xptr, &s_x, idx, 0);
+        fmas.push(quote! {
+            #ident = cfma_accum(#mask_t[#idx], #ident, #xaddr, #b);
+        });
+    }
+    let ynaddr = index_matrix(&yptr, &s_y, 1, 0);
+    let xnaddr = index_matrix(&xptr, &s_x, 0, 1);
+    quote! {
+        for k in 0..#thresh {
+            let #b = mask_load(#mask_n, #yptr);
+            #yptr = #ynaddr;
+            #(#fmas)*
+            #mask_t[k] = 0;
+            #xptr = #xnaddr;
+        }
+    }
 }
 pub fn lhandle_lowtri(
     mask_n: &Ident,
@@ -266,14 +346,23 @@ pub fn lhandle_lowtri(
         }
         let nyaddr = index_matrix(&yptr, &s_y, 1, 0);
         let nxaddr = index_matrix(&xptr, &s_x, 0, 1);
-        tri.push(quote! {
-            {
-                let #b = mask_load(#mask_n, #yptr);
-                #(#fmas)*
-                #xptr = #nxaddr;
-                #yptr = #nyaddr;
-            }
-        });
+        if i + 1 < m  {
+            tri.push(quote! {
+                {
+                    let #b = mask_load(#mask_n, #yptr);
+                    #(#fmas)*
+                    #xptr = #nxaddr;
+                    #yptr = #nyaddr;
+                }
+            });
+        } else {
+            tri.push(quote! {
+                {
+                    let #b = mask_load(#mask_n, #yptr);
+                    #(#fmas)*
+                }
+            });
+        }
     }
     tri
 }
@@ -316,8 +405,8 @@ pub fn lhandle_uptri(
 /// A * L
 /// handles the top part of L column slice
 pub fn rhandle_lowtrie(
-    mask_n: &Ident,
     mask_t: &Ident,
+    mask_n: &Ident,
     tids: &Vars,
     xptr: &Expr,
     yptr: &Expr,
@@ -330,7 +419,7 @@ pub fn rhandle_lowtrie(
     for (idx, ident) in tids.iter().enumerate() {
         let xaddr = index_matrix(&xptr, &s_x, idx, 0);
         fmas.push(quote! {
-            mfma_accum!(#mask_t[#idx], #ident, #xaddr, #b);
+            #ident = cfma_accum(#mask_t[#idx], #ident, #xaddr, #b);
         });
     }
     let ynaddr = index_matrix(&yptr, &s_y, 1, 0);
@@ -364,7 +453,7 @@ pub fn rhandle_uptri(
     for (idx, ident) in tids.iter().enumerate() {
         let xaddr = index_matrix(&xptr, &s_x, idx, 0);
         fmas.push(quote! {
-            mfma_accum!(#mask_t[#idx], #ident, #xaddr, #b);
+            #ident = cfma_accum(#mask_t[#idx], #ident, #xaddr, #b);
         });
     }
     let ynaddr = index_matrix(&yptr, &s_y, 1, 0);
