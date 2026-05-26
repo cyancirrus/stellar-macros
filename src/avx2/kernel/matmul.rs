@@ -62,14 +62,14 @@ pub fn mult_alligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_m
     let tvecs = emitters::load_vecs(&tids, &tptr, &s_t, i);
     let yvecs = emitters::load_vecs(&yids, &yptr, &s_y, k);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
-    let xinc = emitters::increment(&yptr, &s_y, 0, k);
+    let xinc = emitters::increment(&xptr, &s_x, 0, k);
     let prod = emitters::fma_product(&tids, &yids, &xptr, &s_x, i, k);
     let tail = emitters::handle_tail(&tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
     let save = emitters::write_outcome(&tids, &tptr, &s_t, i);
     quote! {
         unsafe {
             #(#tvecs)*
-            for _ in 0..#p {
+            for _ in 0..#p / #k {
                 #(#yvecs)*
                 #(#prod)*
                 #xinc
@@ -87,22 +87,25 @@ pub fn mult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc
     let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
     let tids = emitters::name_range("m", i);
     let yids = emitters::name_range("b", k);
-    let mask_m = emitters::name("mask_m");
+    let bmask_m = emitters::name("mask_m");
     let mask_n = emitters::name("mask_n");
+    let mask_nptr = emitters::name("mask_nptr");
     // instructs
-    let load_mask_m = emitters::init_var(&mask_m, &quote! { MASK[#m] }); 
-    let load_mask_n = emitters::init_var(&mask_n, &quote! { MASK[#n] }); 
-    let tvecs = emitters::mload_vecs(&mask_m, &tids, &tptr, &s_t, i);
+    let load_bmask_m = emitters::init_var(&bmask_m, &quote! { MASK[#m] }); 
+    let load_mask_nptr = emitters::init_var(&mask_nptr, &quote! { MASK[n].as_ptr() as *const __m256i });
+    let load_mask_n = emitters::init_var(&mask_n, &quote! { _mm256_loadu_si256(#mask_nptr) });
+    let tvecs = emitters::mload_vecs(&mask_n, &tids, &tptr, &s_t, i);
     let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
-    let xinc = emitters::increment(&yptr, &s_y, 0, k);
-    let prod = emitters::mfma_product(&mask_m, &tids, &yids, &xptr, &s_x, i, k);
-    let tail = emitters::mhandle_tail(&mask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
-    let save = emitters::mwrite_outcome(&mask_m, &mask_n, &tids, &tptr, &s_t, i);
+    let xinc = emitters::increment(&xptr, &s_x, 0, k);
+    let prod = emitters::mfma_product(&bmask_m, &tids, &yids, &xptr, &s_x, i, k);
+    let tail = emitters::mhandle_tail(&bmask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
+    let save = emitters::mwrite_outcome(&bmask_m, &mask_n, &tids, &tptr, &s_t, i);
 
     quote! {
         unsafe {
-            #load_mask_m
+            #load_bmask_m
+            #load_mask_nptr
             #load_mask_n
             #(#tvecs)*
             for _ in 0..#p / #k {

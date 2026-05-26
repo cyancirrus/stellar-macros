@@ -189,7 +189,7 @@ pub fn handle_tail(
             }
         }
         let nyaddr = index_matrix(&yptr, &s_y, q, 0);
-        let nxaddr = index_matrix(&xptr, &s_x, 0, 1);
+        let nxaddr = index_matrix(&xptr, &s_x, 0, q);
         tail.push(quote! {
             if #q & #p != 0 {
                 #(#section)*

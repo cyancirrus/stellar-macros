@@ -2,8 +2,8 @@ use proc_macro::TokenStream;
 mod avx2;
 mod instructs;
 
-const M: usize = 4;
-const B: usize = 2;
+const M: usize = 8;
+const B: usize = 4;
 
 #[proc_macro]
 pub fn avx2_pack_simd_line(input: TokenStream) -> TokenStream {
