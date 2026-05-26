@@ -155,7 +155,7 @@ pub fn lmult_lower_tri(
     let tail = emitters::mhandle_tail(
         &bmask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k,
     );
-    let tri = emitters::lhandle_lowtri(&mask_t, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
+    let tri = emitters::lhandle_lowtri(&mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
     let save = emitters::mwrite_outcome(&bmask_m, &mask_n, &tids, &tptr, &s_t, i);
     quote! {
         unsafe {
