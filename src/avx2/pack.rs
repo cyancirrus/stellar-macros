@@ -131,7 +131,6 @@ pub fn pack_simd_line(input: proc_macro::TokenStream) -> proc_macro::TokenStream
             )
         );
     };
-
     for o in (0..unroll_factor * AVX2_SIMD_WIDTH).step_by(AVX2_SIMD_WIDTH) {
         z_unroll.push(quote! {
             _mm256_stream_ps( #bptr.add(idx + #o), zeros);
