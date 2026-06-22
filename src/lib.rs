@@ -39,5 +39,5 @@ pub fn kernel_mult_unalligned(input: TokenStream) -> TokenStream {
 // }
 #[proc_macro]
 pub fn kernel_tmult_unalligned(input: TokenStream) -> TokenStream {
-    avx2::kernel::matmul::mult_unalligned(input, M, B)
+    avx2::kernel::matmul::tmult_unalligned(input, M, B)
 }

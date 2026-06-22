@@ -248,14 +248,14 @@ pub fn mhandle_tail(
         for bdx in 0..q {
             let bname = &yids[bdx];
             for (idx, ident) in tids.iter().enumerate() {
-                let addr = index_matrix(&xptr, &s_x, bdx, idx);
+                let addr = index_matrix(&xptr, &s_x, idx, bdx);
                 fma.push(quote! {
                     #ident = cfma_accum(#mask_m[#idx], #ident, #addr, #bname);
                 });
             }
         }
         let nyaddr = index_matrix(&yptr, &s_y, q, 0);
-        let nxaddr = index_matrix(&xptr, &s_x, q, 0);
+        let nxaddr = index_matrix(&xptr, &s_x, 0, q);
         tail.push(quote! {
             if #q & #p != 0 {
                 #(#load)*
@@ -295,14 +295,15 @@ pub fn tmhandle_tail(
         for bdx in 0..q {
             let bname = &yids[bdx];
             for (idx, ident) in tids.iter().enumerate() {
-                let addr = index_matrix(&xptr, &s_x, idx, bdx);
+                // let addr = index_matrix(&xptr, &s_x, idx, bdx);
+                let addr = index_matrix(&xptr, &s_x, bdx, idx);
                 fma.push(quote! {
                     #ident = cfma_accum(#mask_m[#idx], #ident, #addr, #bname);
                 });
             }
         }
         let nyaddr = index_matrix(&yptr, &s_y, q, 0);
-        let nxaddr = index_matrix(&xptr, &s_x, 0, q);
+        let nxaddr = index_matrix(&xptr, &s_x, q, 0);
         tail.push(quote! {
             if #q & #p != 0 {
                 #(#load)*

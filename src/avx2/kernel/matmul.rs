@@ -136,10 +136,9 @@ pub fn tmult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> pro
     let tvecs = emitters::mload_vecs(&mask_n, &tids, &tptr, &s_t, i);
     let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
     let yinc = emitters::increment(&yptr, &s_y, k, 0);
-    // let xinc = emitters::increment(&xptr, &s_x, 0, k);
-    let xinc = emitters::increment(&xptr, &s_x, 1, 0);
+    let xinc = emitters::increment(&xptr, &s_x, k, 0);
     let prod = emitters::mfma_tproduct(&bmask_m, &tids, &yids, &xptr, &s_x, i, k);
-    let tail = emitters::mhandle_tail(&bmask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
+    let tail = emitters::tmhandle_tail(&bmask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
     let save = emitters::mwrite_outcome(&bmask_m, &mask_n, &tids, &tptr, &s_t, i);
 
     quote! {
