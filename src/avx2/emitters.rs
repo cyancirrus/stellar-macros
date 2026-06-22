@@ -95,6 +95,18 @@ pub fn fma_product(tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, m: usize, 
     }
     products
 }
+pub fn fma_tproduct(tids: &Vars, yids: &Vars, xptr: &Expr, s_x: &Expr, m: usize, k: usize) -> Instr {
+    let mut products = Vec::with_capacity(m * k);
+    for (bdx, b) in yids.iter().enumerate() {
+        for (idx, ident) in tids.iter().enumerate() {
+            let addr = index_matrix(&xptr, &s_x, bdx, idx);
+            products.push(quote! {
+                #ident = fma_accum(#ident, #addr, #b);
+            });
+        }
+    }
+    products
+}
 pub fn mfma_product(
     mask: &Ident,
     tids: &Vars,
@@ -210,6 +222,53 @@ pub fn handle_tail(
         }
         let nyaddr = index_matrix(&yptr, &s_y, q, 0);
         let nxaddr = index_matrix(&xptr, &s_x, 0, q);
+        tail.push(quote! {
+            if #q & #p != 0 {
+                #(#section)*
+                #xname = #nxaddr;
+                #yname = #nyaddr;
+            }
+        });
+        q >>= 1
+    }
+    tail
+}
+pub fn thandle_tail(
+    tids: &Vars,
+    yids: &Vars,
+    xptr: &Expr,
+    yptr: &Expr,
+    s_x: &Expr,
+    s_y: &Expr,
+    p: &Expr,
+    k: usize,
+) -> Instr {
+    // binary decomp of the k variable
+    let mut q = initialize_q(k);
+    let mut tail = Vec::new();
+    let yname = name("yptr");
+    let xname = name("xptr");
+    while q > 0 {
+        let mut section = Vec::new();
+        for bdx in 0..q {
+            let bname = &yids[bdx];
+            let yaddr = index_matrix(&yptr, &s_y, bdx, 0);
+            section.push(quote! {
+                let #bname = _mm256_loadu_ps(#yaddr);
+            });
+        }
+
+        for bdx in 0..q {
+            let bname = &yids[bdx];
+            for (idx, ident) in tids.iter().enumerate() {
+                let addr = index_matrix(&xptr, &s_x, bdx, idx);
+                section.push(quote! {
+                    #ident = fma_accum(#ident, #addr, #bname);
+                });
+            }
+        }
+        let nyaddr = index_matrix(&yptr, &s_y, q, 0);
+        let nxaddr = index_matrix(&xptr, &s_x, q, 0);
         tail.push(quote! {
             if #q & #p != 0 {
                 #(#section)*

@@ -121,6 +121,34 @@ pub fn mult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc
     .into()
 }
 #[rustfmt::skip]
+pub fn tmult_alligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(input as KernelArgs);
+    let KernelArgs { xptr, yptr, tptr, m: _, p, n: _, s_x, s_y, s_t} = args;
+    let tids = emitters::name_range("m", i);
+    let yids = emitters::name_range("b", k);
+    let tvecs = emitters::load_vecs(&tids, &tptr, &s_t, i);
+    let yvecs = emitters::load_vecs(&yids, &yptr, &s_y, k);
+    let yinc = emitters::increment(&yptr, &s_y, k, 0);
+    let xinc = emitters::increment(&xptr, &s_x, k, 0);
+    let prod = emitters::fma_tproduct(&tids, &yids, &xptr, &s_x, i, k);
+    let tail = emitters::thandle_tail(&tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
+    let save = emitters::write_outcome(&tids, &tptr, &s_t, i);
+    quote! {
+        unsafe {
+            #(#tvecs)*
+            for _ in 0..#p / #k {
+                #(#yvecs)*
+                #(#prod)*
+                #xinc
+                #yinc
+            }
+            #(#tail)*
+            #(#save)*
+        }
+    }
+    .into()
+}
+#[rustfmt::skip]
 pub fn tmult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
     let args = parse_macro_input!(input as KernelArgs);
     let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
