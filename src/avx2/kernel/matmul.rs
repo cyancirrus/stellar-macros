@@ -120,6 +120,46 @@ pub fn mult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc
     }
     .into()
 }
+#[rustfmt::skip]
+pub fn tmult_unalligned(input: proc_macro::TokenStream, i:usize, k:usize) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(input as KernelArgs);
+    let KernelArgs { xptr, yptr, tptr, m, p, n, s_x, s_y, s_t} = args;
+    let tids = emitters::name_range("m", i);
+    let yids = emitters::name_range("b", k);
+    let bmask_m = emitters::name("mask_m");
+    let mask_n = emitters::name("mask_n");
+    let mask_nptr = emitters::name("mask_nptr");
+    // instructs
+    let load_bmask_m = emitters::init_var(&bmask_m, &quote! { MASK[#m] });
+    let load_mask_nptr = emitters::init_var(&mask_nptr, &quote! { MASK[n].as_ptr() as *const __m256i });
+    let load_mask_n = emitters::init_var(&mask_n, &quote! { _mm256_loadu_si256(#mask_nptr) });
+    let tvecs = emitters::mload_vecs(&mask_n, &tids, &tptr, &s_t, i);
+    let yvecs = emitters::mload_vecs(&mask_n, &yids, &yptr, &s_y, k);
+    let yinc = emitters::increment(&yptr, &s_y, k, 0);
+    // let xinc = emitters::increment(&xptr, &s_x, 0, k);
+    let xinc = emitters::increment(&xptr, &s_x, 1, 0);
+    let prod = emitters::mfma_tproduct(&bmask_m, &tids, &yids, &xptr, &s_x, i, k);
+    let tail = emitters::mhandle_tail(&bmask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k);
+    let save = emitters::mwrite_outcome(&bmask_m, &mask_n, &tids, &tptr, &s_t, i);
+
+    quote! {
+        unsafe {
+            #load_bmask_m
+            #load_mask_nptr
+            #load_mask_n
+            #(#tvecs)*
+            for _ in 0..#p / #k {
+                #(#yvecs)*
+                #(#prod)*
+                #yinc
+                #xinc
+            }
+            #(#tail)*
+            #(#save)*
+        }
+    }
+    .into()
+}
 pub fn lmult_lower_tri(
     input: proc_macro::TokenStream,
     i: usize,
@@ -148,7 +188,8 @@ pub fn lmult_lower_tri(
     let load_thresh = emitters::init_var(&thresh, &quote! { #m.min(#p) });
     let load_bmask_m = emitters::init_var(&bmask_m, &quote! { MASK[#m] });
     let load_bmask_t = emitters::init_var(&bmask_t, &quote! { #bmask_m });
-    let load_mask_nptr = emitters::init_var(&mask_nptr, &quote! { MASK[n].as_ptr() as *const __m256i });
+    let load_mask_nptr =
+        emitters::init_var(&mask_nptr, &quote! { MASK[n].as_ptr() as *const __m256i });
     let load_mask_n = emitters::init_var(&mask_n, &quote! { _mm256_loadu_si256(#mask_nptr) });
     let load_mask_t = emitters::init_var(&mask_n, &quote! { #mask_n });
     let tvecs = emitters::mload_vecs(&mask_n, &tids, &tptr, &s_t, i);
@@ -159,7 +200,9 @@ pub fn lmult_lower_tri(
     let tail = emitters::mhandle_tail(
         &bmask_m, &mask_n, &tids, &yids, &xptr, &yptr, &s_x, &s_y, &p, k,
     );
-    let tri = emitters::unalligned_lhandle_lowtri(&thresh, &bmask_t, &mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i);
+    let tri = emitters::unalligned_lhandle_lowtri(
+        &thresh, &bmask_t, &mask_n, &tids, &xptr, &yptr, &s_x, &s_y, &yids[0], i,
+    );
     let save = emitters::mwrite_outcome(&bmask_m, &mask_n, &tids, &tptr, &s_t, i);
     quote! {
         unsafe {

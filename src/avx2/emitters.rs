@@ -115,6 +115,26 @@ pub fn mfma_product(
     }
     products
 }
+pub fn mfma_tproduct(
+    mask: &Ident,
+    tids: &Vars,
+    yids: &Vars,
+    xptr: &Expr,
+    s_x: &Expr,
+    i: usize,
+    k: usize,
+) -> Instr {
+    let mut products = Vec::with_capacity(i * k);
+    for (bdx, bname) in yids.iter().enumerate() {
+        for (idx, ident) in tids.iter().enumerate() {
+            let addr = index_matrix(&xptr, &s_x, bdx, idx);
+            products.push(quote! {
+                #ident = cfma_accum(#mask[#idx], #ident, #addr, #bname);
+            });
+        }
+    }
+    products
+}
 pub fn write_outcome(tids: &Vars, tptr: &Expr, s_t: &Expr, m: usize) -> Instr {
     let mut saves = Vec::with_capacity(m);
     for (idx, ident) in tids.iter().enumerate() {
@@ -228,6 +248,53 @@ pub fn mhandle_tail(
         for bdx in 0..q {
             let bname = &yids[bdx];
             for (idx, ident) in tids.iter().enumerate() {
+                let addr = index_matrix(&xptr, &s_x, bdx, idx);
+                fma.push(quote! {
+                    #ident = cfma_accum(#mask_m[#idx], #ident, #addr, #bname);
+                });
+            }
+        }
+        let nyaddr = index_matrix(&yptr, &s_y, q, 0);
+        let nxaddr = index_matrix(&xptr, &s_x, q, 0);
+        tail.push(quote! {
+            if #q & #p != 0 {
+                #(#load)*
+                #yptr = #nyaddr;
+                #(#fma)*
+                #xptr = #nxaddr;
+            }
+        });
+        q >>= 1
+    }
+    tail
+}
+pub fn tmhandle_tail(
+    mask_m: &Ident,
+    mask_n: &Ident,
+    tids: &Vars,
+    yids: &Vars,
+    xptr: &Expr,
+    yptr: &Expr,
+    s_x: &Expr,
+    s_y: &Expr,
+    p: &Expr,
+    k: usize,
+) -> Instr {
+    let mut q = initialize_q(k);
+    let mut tail = Vec::new();
+    while q > 0 {
+        let mut load = Vec::new();
+        let mut fma = Vec::new();
+        for bdx in 0..q {
+            let bname = &yids[bdx];
+            let yaddr = index_matrix(&yptr, &s_y, bdx, 0);
+            load.push(quote! {
+                let #bname = mask_load(#mask_n, #yaddr);
+            });
+        }
+        for bdx in 0..q {
+            let bname = &yids[bdx];
+            for (idx, ident) in tids.iter().enumerate() {
                 let addr = index_matrix(&xptr, &s_x, idx, bdx);
                 fma.push(quote! {
                     #ident = cfma_accum(#mask_m[#idx], #ident, #addr, #bname);
@@ -301,7 +368,7 @@ pub fn lhandle_lowtri(
         }
         let nyaddr = index_matrix(&yptr, &s_y, 1, 0);
         let nxaddr = index_matrix(&xptr, &s_x, 0, 1);
-        if i + 1 < m  {
+        if i + 1 < m {
             tri.push(quote! {
                 {
                     let #b = mask_load(#mask_n, #yptr);
